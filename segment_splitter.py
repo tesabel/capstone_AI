@@ -99,7 +99,7 @@ def main(skip_stt: bool = True) -> Dict[str, Any]:
         text = ""  # text 변수 초기화
         
         # STT 결과 파일 경로
-        stt_result_path = "data/STT_result/stt_result.json"
+        stt_result_path = "data/segment_split/segment_split.json"
         
         # STT 결과 읽기
         if skip_stt:
