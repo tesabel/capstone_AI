@@ -55,7 +55,7 @@ def transcribe_audio():
     audio_file_path = "assets/os_35.m4a"
     
     # 출력 디렉토리 생성
-    output_dir = "data/STT_result"
+    output_dir = "data/stt_result"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -82,7 +82,7 @@ def transcribe_audio():
         
         # JSON 데이터 생성
         json_data = {
-            "result": complete_transcript
+            "text": complete_transcript
         }
         
         # 현재 시간을 파일명에 포함
