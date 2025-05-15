@@ -1,25 +1,31 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Segment–Slide Mapper
+세그먼트-슬라이드 매핑 도구
 
-Maps lecture speech segments (STT) to their corresponding lecture slides using
-keyword‑based semantic similarity with an OpenAI model.
+강의 음성 세그먼트(STT)를 OpenAI 모델을 사용한 키워드 기반 의미적 유사성을 통해
+해당하는 강의 슬라이드에 매핑합니다.
 
-Usage (default values shown):
+사용법 (기본값 표시):
     main(
-        skip_stt=True,                 # use cached STT result instead of re‑running STT/segmentation
-        skip_image_captioning=True,    # use cached image‑captioning result instead of re‑running captioning
-        slide_window=6,                # how many slides to include before/after the current centre slide
-        max_segment_length=2000,       # max characters per request after merging short segments
-        min_segment_length=500         # if the final batch is shorter than this, append it to the previous batch
+        skip_segment_split=True,       # 캐시된 세그먼트 분리 결과 사용
+        skip_stt=True,                 # 캐시된 STT 결과 사용
+        skip_image_captioning=True,    # 캐시된 이미지 캡셔닝 결과 사용
+        slide_window=6,                # 현재 중심 슬라이드 전후로 포함할 슬라이드 수
+        max_segment_length=2000,       # 병합 후 요청당 최대 문자 수
+        min_segment_length=500,        # 마지막 배치가 이보다 짧으면 이전 배치에 추가
+        alpha=0.5,                     # 세그먼트 분리 임계값
+        seg_cnt=-1,                    # 세그먼트 수 (-1 또는 1 이상)
+        post_process=True,             # 후처리 여부
+        max_size=2000,                 # 후처리 시 최대 문단 크기
+        min_size=200                   # 후처리 시 최소 문단 크기
     )
 
-The script automatically writes the final mapping to
-``data/segment_mapping/segment_mapping_<YYYYMMDD_HHMM>.json`` and returns the
-in‑memory list of mappings.
+스크립트는 최종 매핑을 자동으로
+``data/segment_mapping/segment_mapping_<YYYYMMDD_HHMM>.json``에 저장하고
+메모리 내 매핑 목록을 반환합니다.
 
-Each mapping element is of the form
+각 매핑 요소는 다음과 같은 형식입니다:
 ```json
 { "segment_id": <int>, "slide_id": <int> }
 ```
@@ -106,7 +112,7 @@ def merge_segments(
     The merged block keeps **each** segment clearly separated – exactly one
     block per line as in ::
         - Segment ID: 1
-          Text: …
+        Text: …
     The final short remainder (if any) is appended to the previous batch when
     its length is below *min_len*.
     """
@@ -149,12 +155,43 @@ def build_slide_prompt(slides: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def call_mapping_api(segments_block: str, slide_block: str) -> List[Dict[str, int]]:
-    """Send a single mapping request and return the parsed mapping list."""
-    user_content = f"""Given the following lecture slides and segments, analyze the content and map each segment to the most relevant slide.\n\nEach slide contains:\n- slide_number\n- title_keywords: core concepts or titles of the slide\n- secondary_keywords: additional specific terms or technical vocabulary mentioned on the slide\n\nSlides:\n{slide_block}\n\nSegments:\n{segments_block}\n\nYour task:\nMatch each segment to the most appropriate slide based on **semantic similarity with title_keywords and secondary_keywords**.\n\nReply ONLY with a JSON array in the following format:\n[\n  {{ \"segment_id\": 9, \"slide_id\": 4 }},\n  ...\n]\n"""
+def call_mapping_api(
+    segments_block: str, 
+    slide_block: str,
+    message_count: int,
+    start_slide: int,
+    end_slide: int
+) -> List[Dict[str, int]]:
+    """단일 매핑 요청을 보내고 파싱된 매핑 목록을 반환합니다."""
+    user_content = f"""Given the following lecture slides and segments, analyze the content and map each segment to the most relevant slide.
 
-    # ── Debug: print *only* the user message content
+    Each slide contains:
+    - slide_number
+    - title_keywords: core concepts or titles of the slide
+    - secondary_keywords: additional specific terms or technical vocabulary mentioned on the slide
+    
+    Slides:
+    {slide_block}
+
+    Segments:
+    {segments_block}
+
+    Your task:
+    Match each segment to the most appropriate slide based on **semantic similarity with title_keywords and secondary_keywords**.
+    If a segment doesn't match any slide, use slide_id: -1.
+
+    Reply ONLY with a JSON array in the following format:
+    [
+        {{ "segment_id": 9, "slide_id": 4 }},
+        ...
+    ]
+    """
+
+    # ── 디버그: 사용자 메시지 내용만 출력
     print("\n[DEBUG] ----- USER MESSAGE BEGIN -----")
+    print(f"[DEBUG] 메시지 번호: {message_count}")
+    print(f"[DEBUG] 병합된 세그먼트 길이: {len(segments_block)} 문자")
+    print(f"[DEBUG] 슬라이드 범위: {start_slide} ~ {end_slide}")
     print(user_content)
     print("[DEBUG] ----- USER MESSAGE END -----\n")
 
@@ -217,38 +254,69 @@ def save_results(mappings: List[Dict[str, int]]) -> str:
 # ----------------------------------------------------------------------------
 
 def main(
+    skip_segment_split: bool = True,
     skip_stt: bool = True,
     skip_image_captioning: bool = True,
     slide_window: int = 6,
     max_segment_length: int = 2000,
     min_segment_length: int = 500,
+    alpha: float = 0.5,
+    seg_cnt: int = -1,
+    post_process: bool = True,
+    max_size: int = 2000,
+    min_size: int = 200,
 ) -> List[Dict[str, int]]:
-    """End‑to‑end mapping routine. See module docstring for parameter details."""
-    # 1. Load data -------------------------------------------------------------------
-    segments = load_segments(skip_stt)
+    """엔드투엔드 매핑 루틴. 파라미터 상세는 모듈 독스트링을 참조하세요."""
+    # 1. 데이터 로드 -------------------------------------------------------------------
+    if skip_segment_split:
+        segments = load_segments(skip_stt=True)
+    else:
+        from segment_splitter import main as segment_splitter_main
+        segments = segment_splitter_main(
+            skip_stt=skip_stt,
+            alpha=alpha,
+            seg_cnt=seg_cnt,
+            post_process=post_process,
+            max_size=max_size,
+            min_size=min_size
+        )
+    
     slides = load_slides(skip_image_captioning)
 
-    # 2. Prepare segment messages ----------------------------------------------------
+    # 2. 세그먼트 메시지 준비 ----------------------------------------------------
     batches = merge_segments(segments, max_segment_length, min_segment_length)
 
-    # 3. Iteratively call the model --------------------------------------------------
+    # 3. 모델 반복 호출 --------------------------------------------------
     current_centre = slides[0]["slide_number"] if slides else 1
     all_mappings: List[Dict[str, int]] = []
+    message_count = 0
 
     for batch in batches:
         relevant_slides = slice_slides(slides, current_centre, slide_window)
+        start_slide = relevant_slides[0]["slide_number"] if relevant_slides else 0
+        end_slide = relevant_slides[-1]["slide_number"] if relevant_slides else 0
+        message_count += 1
+        
         slide_prompt = build_slide_prompt(relevant_slides)
-        batch_mappings = call_mapping_api(batch, slide_prompt)
+        batch_mappings = call_mapping_api(
+            batch, 
+            slide_prompt,
+            message_count,
+            start_slide,
+            end_slide
+        )
         all_mappings.extend(batch_mappings)
 
-        # Update the centre slide for the next iteration -----------------------------
+        # 다음 반복을 위한 중심 슬라이드 업데이트 -----------------------------
         if batch_mappings:
-            current_centre = max(m["slide_id"] for m in batch_mappings) - 1
+            valid_mappings = [m for m in batch_mappings if m["slide_id"] != -1]
+            if valid_mappings:
+                current_centre = max(m["slide_id"] for m in valid_mappings) - 1
 
-    # 4. Sort & persist --------------------------------------------------------------
+    # 4. 정렬 및 저장 --------------------------------------------------------------
     all_mappings.sort(key=lambda m: m["segment_id"])
     json_path = save_results(all_mappings)
-    print(f"[INFO] Saved mapping to {json_path}")
+    print(f"[INFO] 매핑이 {json_path}에 저장되었습니다")
 
     return all_mappings
 

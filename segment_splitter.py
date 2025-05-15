@@ -86,11 +86,23 @@ class ClovaSegmenter:
         except Exception as e:
             return {"error": f"알 수 없는 오류: {str(e)}"}
 
-def main(skip_stt: bool = True) -> Dict[str, Any]:
+def main(
+    skip_stt: bool = True,
+    alpha: float = 0.5,
+    seg_cnt: int = -1,
+    post_process: bool = True,
+    max_size: int = 2000,
+    min_size: int = 200
+) -> Dict[str, Any]:
     """메인 함수
     
     Args:
         skip_stt: STT 변환을 건너뛸지 여부
+        alpha: 세그먼트 분리 임계값
+        seg_cnt: 세그먼트 수 (-1 또는 1 이상)
+        post_process: 후처리 여부
+        max_size: 후처리 시 최대 문단 크기
+        min_size: 후처리 시 최소 문단 크기
         
     Returns:
         세그먼트 분리 결과
@@ -99,7 +111,7 @@ def main(skip_stt: bool = True) -> Dict[str, Any]:
         text = ""  # text 변수 초기화
         
         # STT 결과 파일 경로
-        stt_result_path = "data/segment_split/segment_split.json"
+        stt_result_path = "data/stt_result/stt_result.json"
         
         # STT 결과 읽기
         if skip_stt:
@@ -125,11 +137,11 @@ def main(skip_stt: bool = True) -> Dict[str, Any]:
         segmenter = ClovaSegmenter()
         response = segmenter.segment_text(
             text=text,
-            alpha=0.5,
-            seg_cnt=-1,
-            post_process=True,
-            max_size=2000,
-            min_size=200
+            alpha=alpha,
+            seg_cnt=seg_cnt,
+            post_process=post_process,
+            max_size=max_size,
+            min_size=min_size
         )
         
         # 오류 처리
