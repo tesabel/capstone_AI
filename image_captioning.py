@@ -57,33 +57,50 @@ def analyze_image(image_url: str) -> dict:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that analyzes lecture slides and extracts keywords and slide type."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_url,
-                                "detail": "low"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": """Analyze this lecture slide and:
-1. Extract 1-2 main keywords and 3-5 secondary keywords
-2. Determine the slide type from these categories:
-   - 'objective': Learning objectives, overview slides
-   - 'code': Code or algorithm focused slides
-   - 'image': Image, graph, or visual material focused slides
-   - 'content': General theory explanation, text-focused slides"""
-                        }
-                    ]
+    {
+        "role": "system",
+        "content": "You are an assistant that analyzes each lecture slide, extracts concise English keywords, and classifies the slide into a single type so audio segments can later be mapped accurately."
+    },
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_url,
+                    "detail": "low"
                 }
-            ],
+            },
+            {
+                "type": "text",
+                "text": """Analyze this slide and reply ONLY with a JSON object in the form:
+{
+  "type": "<meta|code|image|content>",
+  "title_keywords": ["<1-2 core keywords>"],
+  "secondary_keywords": ["<3-5 additional terms>"]
+}
+
+Field meanings:
+- "title_keywords": 1-2 core terms that best summarize the slide’s main idea.
+- "secondary_keywords": 1–5 specific technical or domain terms that actually appear on the slide; avoid broad or generic words.
+
+Type definitions (choose exactly one):
+- meta   : cover, agenda, learning-objective, summary, or closing slides that must never be mapped to audio segments.
+- code   : slides dominated by source code, pseudocode, or algorithms.
+- image  : slides whose main content is an image, diagram, chart, or other visual.
+- content: all other explanatory or theory-focused slides.
+
+Rules:
+1. Keep every keyword short (≤ 3 words), English nouns where possible.
+2. If the type is meta, BOTH keyword arrays must be empty lists.
+3. For secondary_keywords, include only concrete terms present on the slide; skip vague catch-all words.
+4. Do not add any text outside the JSON object.
+5. If a slide fits multiple categories, pick the most specific (code > image > content).
+"""
+            }
+        ]
+    }
+],
             functions=[
                 {
                     "name": "return_slide_analysis",
@@ -129,7 +146,7 @@ def process_pdf(skip_segment_split: bool = True) -> list:
     """
     try:
         # PDF 파일 경로
-        pdf_path = "assets/os_35.pdf"
+        pdf_path = "assets/os_captioning_test.pdf"
         
         # PDF를 이미지로 변환
         encoded_images = convert_pdf_to_images(pdf_path)
@@ -137,6 +154,7 @@ def process_pdf(skip_segment_split: bool = True) -> list:
         # 각 이미지에 대해 키워드 추출
         results = []
         for i, img_str in enumerate(encoded_images, 1):
+            print(f"[INFO] 슬라이드 {i} 분석 중...")
             # base64 이미지를 URL로 변환
             image_url = f"data:image/jpeg;base64,{img_str}"
             
