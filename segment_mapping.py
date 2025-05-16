@@ -247,12 +247,46 @@ Respond with the JSON array ONLY, e.g.:
 # 결과 저장
 # ----------------------------------------------------------------------------
 
-def save_results(mappings: List[Dict[str, int]]) -> str:
+def save_results(mappings: List[Dict[str, int]], segments: List[Dict[str, Any]]) -> str:
+    # 슬라이드별로 세그먼트 그룹화
+    slide_segments = {}
+    
+    for mapping in mappings:
+        slide_id = mapping["slide_id"]
+        segment_id = mapping["segment_id"]
+        
+        # 해당 세그먼트의 텍스트 찾기
+        segment_text = next((seg["text"] for seg in segments if seg["id"] == segment_id), "")
+        
+        # 슬라이드 ID를 문자열 형식으로 변환
+        slide_key = "slide0" if slide_id == -1 else f"slide{slide_id}"
+        
+        if slide_key not in slide_segments:
+            slide_segments[slide_key] = {"Segments": {}}
+            
+        slide_segments[slide_key]["Segments"][f"segment{segment_id}"] = {
+            "text": segment_text
+        }
+    
+    # 슬라이드 번호로 정렬 (문자열에서 숫자만 추출하여 정렬)
+    sorted_slides = dict(sorted(
+        slide_segments.items(),
+        key=lambda x: int(x[0].replace("slide", "")) if x[0] != "slide0" else -1  # slide0은 맨 앞으로
+    ))
+    
+    # 각 슬라이드 내의 세그먼트를 ID로 정렬
+    for slide_key in sorted_slides:
+        sorted_segments = dict(sorted(
+            sorted_slides[slide_key]["Segments"].items(),
+            key=lambda x: int(x[0].replace("segment", ""))
+        ))
+        sorted_slides[slide_key]["Segments"] = sorted_segments
+    
     os.makedirs("data/segment_mapping", exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     path = f"data/segment_mapping/segment_mapping_{ts}.json"
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(mappings, f, ensure_ascii=False, indent=2)
+        json.dump(sorted_slides, f, ensure_ascii=False, indent=2)
     return path
 
 # ----------------------------------------------------------------------------
@@ -273,7 +307,7 @@ def segment_mapping(
     post_process: bool = True,
     max_size: int = 2000,
     min_size: int = 200,
-) -> List[Dict[str, int]]:
+) -> Dict[str, Any]:
     # 1. 데이터 로드 -------------------------------------------------------------------
     if skip_segment_split:
         segments = load_segments(audio_path=audio_path, skip_stt=True)
@@ -323,10 +357,10 @@ def segment_mapping(
 
     # 4. 정렬 및 저장 --------------------------------------------------------------
     all_mappings.sort(key=lambda m: m["segment_id"])
-    json_path = save_results(all_mappings)
+    json_path = save_results(all_mappings, segments)
     print(f"[INFO] 매핑이 {json_path}에 저장되었습니다")
 
-    return all_mappings
+    return json.loads(open(json_path, "r", encoding="utf-8").read())
 
 
 if __name__ == "__main__":
