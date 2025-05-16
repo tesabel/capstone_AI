@@ -146,7 +146,7 @@ def process_pdf(skip_segment_split: bool = True) -> list:
     """
     try:
         # PDF 파일 경로
-        pdf_path = "assets/os_captioning_test.pdf"
+        pdf_path = "assets/os_35.pdf"
         
         # PDF를 이미지로 변환
         encoded_images = convert_pdf_to_images(pdf_path)

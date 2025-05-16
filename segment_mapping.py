@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 세그먼트-슬라이드 매핑 도구
 
@@ -41,7 +39,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # ----------------------------------------------------------------------------
-# Environment & client setup
+# 환경변수 설정
 # ----------------------------------------------------------------------------
 
 load_dotenv()
@@ -52,7 +50,7 @@ client = OpenAI(
 )
 
 # ----------------------------------------------------------------------------
-# Data‑loading helpers
+# 데이터 로드
 # ----------------------------------------------------------------------------
 
 def load_segments(skip_stt: bool = True) -> List[Dict[str, Any]]:
@@ -75,7 +73,7 @@ def load_segments(skip_stt: bool = True) -> List[Dict[str, Any]]:
             return cached["segments"]
         raise ValueError("Unexpected STT result format – expected list or {'segments': …}")
 
-    # Live STT   -------------------------------------------------------------
+    # Live STT 실행 -------------------------------------------------------------
     from segment_splitter import main as segment_splitter_main  # type: ignore
 
     segs = segment_splitter_main(skip_stt=False)
@@ -100,7 +98,7 @@ def load_slides(skip_image_captioning: bool = True) -> List[Dict[str, Any]]:
     return [s for s in slides if s.get("type") != "meta"]
 
 # ----------------------------------------------------------------------------
-# Transformation & prompt‑building helpers
+# Transformation & prompt‑building 
 # ----------------------------------------------------------------------------
 
 def merge_segments(
@@ -162,32 +160,30 @@ def call_mapping_api(
     start_slide: int,
     end_slide: int
 ) -> List[Dict[str, int]]:
-    """단일 매핑 요청을 보내고 파싱된 매핑 목록을 반환합니다."""
-    user_content = f"""Given the following lecture slides and segments, analyze the content and map each segment to the most relevant slide.
+    user_content = f"""Slides (each has slide_number, type, title_keywords, secondary_keywords):
+{slide_block}
 
-    Each slide contains:
-    - slide_number
-    - title_keywords: core concepts or titles of the slide
-    - secondary_keywords: additional specific terms or technical vocabulary mentioned on the slide
-    
-    Slides:
-    {slide_block}
+Segments (Korean STT):
+{segments_block}
 
-    Segments:
-    {segments_block}
+Mapping rules
+1. Match by semantic similarity, giving highest weight to title_keywords; use secondary_keywords for tie-breaking.
+2. Slide types  
+   • code   – segment explains source code / algorithm  
+   • image  – segment describes a picture / chart / diagram  
+   • content – normal explanatory slide with text or formulas  
+   • non_content – cover / outline / goals / ending; **never map** (use slide_id −1)
+3. If a segment does not clearly match any valid slide, or only matches a non_content slide, set slide_id to −1.
 
-    Your task:
-    Match each segment to the most appropriate slide based on **semantic similarity with title_keywords and secondary_keywords**.
-    If a segment doesn't match any slide, use slide_id: -1.
+Respond with the JSON array ONLY, e.g.:
+[
+  {{ "segment_id": 12, "slide_id": 5 }},
+  {{ "segment_id": 13, "slide_id": -1 }}
+]
 
-    Reply ONLY with a JSON array in the following format:
-    [
-        {{ "segment_id": 9, "slide_id": 4 }},
-        ...
-    ]
     """
 
-    # ── 디버그: 사용자 메시지 내용만 출력
+    # 디버깅
     print("\n[DEBUG] ----- USER MESSAGE BEGIN -----")
     print(f"[DEBUG] 메시지 번호: {message_count}")
     print(f"[DEBUG] 병합된 세그먼트 길이: {len(segments_block)} 문자")
@@ -198,7 +194,11 @@ def call_mapping_api(
     messages = [
         {
             "role": "system",
-            "content": "You are an assistant that maps lecture segments to their corresponding slides based on content similarity.",
+            "content": (
+            "You map Korean lecture speech segments to the most relevant English slide. "
+            "Prioritize title_keywords, use secondary_keywords as support, and NEVER match to slides whose type is "
+            "'non_content'. Return ONLY the JSON mapping array."
+        ),
         },
         {"role": "user", "content": user_content},
     ]
@@ -238,7 +238,7 @@ def call_mapping_api(
 
 
 # ----------------------------------------------------------------------------
-# Output helper
+# 결과 저장
 # ----------------------------------------------------------------------------
 
 def save_results(mappings: List[Dict[str, int]]) -> str:
@@ -250,7 +250,7 @@ def save_results(mappings: List[Dict[str, int]]) -> str:
     return path
 
 # ----------------------------------------------------------------------------
-# Main driver
+# Main
 # ----------------------------------------------------------------------------
 
 def main(
