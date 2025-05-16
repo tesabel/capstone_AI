@@ -45,36 +45,30 @@ def convert_pdf_to_images(pdf_path: str) -> List[str]:
     except Exception as e:
         raise Exception(f"PDF 변환 중 오류 발생: {str(e)}")
 
-def load_segment_mapping(skip_segment_split: bool = True) -> Dict[str, Any]:
-    """세그먼트 매핑 결과를 로드합니다."""
-    if skip_segment_split:
-        # 가장 최근의 매핑 결과 파일 찾기
-        mapping_dir = "data/segment_mapping"
-        if not os.path.exists(mapping_dir):
-            raise FileNotFoundError(f"매핑 결과 디렉토리를 찾을 수 없습니다: {mapping_dir}")
-        
-        mapping_files = [f for f in os.listdir(mapping_dir) if f.startswith("segment_mapping_")]
-        if not mapping_files:
-            raise FileNotFoundError("매핑 결과 파일을 찾을 수 없습니다.")
-        
-        latest_file = max(mapping_files)
-        path = os.path.join(mapping_dir, latest_file)
-        
-        with open(path, "r", encoding="utf-8") as f:
+def load_json_file(file_path: str) -> Dict[str, Any]:
+    """JSON 파일을 로드합니다."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    else:
-        # 실제 세그먼트 매핑 실행
-        from segment_mapping import segment_mapping
-        return segment_mapping()
+    except Exception as e:
+        raise Exception(f"JSON 파일 로드 중 오류 발생: {str(e)}")
 
-def generate_summary(slide_image: str, merged_segments: str) -> Dict[str, Any]:
+def generate_summary(slide_data: Dict[str, Any], merged_segments: str) -> Dict[str, Any]:
     """단일 슬라이드에 대한 요약을 생성합니다."""
     prompt = f"""
 You are an expert in creating structured notes based on long user inputs.
 
 The user's input consists of:
-- A **slide image** that shows the lecture content, and
+- A **slide analysis** that shows the lecture content details, and
 - A set of **matching lecture segments** explaining details related to that slide.
+
+Slide Analysis:
+\"\"\"
+Type: {slide_data['type']}
+Title Keywords: {', '.join(slide_data['title_keywords'])}
+Secondary Keywords: {', '.join(slide_data['secondary_keywords'])}
+Detail: {slide_data['detail']}
+\"\"\"
 
 Matched Lecture Segments:
 \"\"\"
@@ -149,19 +143,7 @@ Now, generate the notes accordingly.
             },
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{slide_image}",
-                            "detail": "low"
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
-                    }
-                ]
+                "content": prompt
             }
         ],
         functions=[
@@ -201,30 +183,35 @@ Now, generate the notes accordingly.
 
     return json.loads(response.choices[0].message.function_call.arguments)
 
-def create_summary(pdf_path: str = "assets/os_35.pdf", skip_segment_split: bool = True) -> Dict[str, Any]:
-    """모든 슬라이드에 대한 요약을 생성합니다."""
-    # PDF를 이미지로 변환
-    slide_images = convert_pdf_to_images(pdf_path)
+def create_summary(
+    image_captioning_data: Dict[str, Any],
+    segment_mapping_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """모든 슬라이드에 대한 요약을 생성합니다.
     
-    # 세그먼트 매핑 데이터 로드
-    mapping_data = load_segment_mapping(skip_segment_split)
-
+    Args:
+        image_captioning_data: 이미지 캡셔닝 결과 JSON 데이터
+        segment_mapping_data: 세그먼트 매핑 결과 JSON 데이터
+        
+    Returns:
+        생성된 요약 데이터
+    """
     # 결과 저장할 딕셔너리
     summaries = {}
 
     # 각 슬라이드에 대해 요약 생성
-    for slide_key, slide_data in mapping_data.items():
+    for slide_key, slide_data in segment_mapping_data.items():
         if slide_key == "slide0":
             continue  # 매핑되지 않은 세그먼트는 요약하지 않음
             
         slide_number = int(slide_key.replace("slide", ""))
         
-        # 슬라이드 번호가 이미지 범위를 벗어나면 건너뛰기
-        if slide_number > len(slide_images):
+        # 슬라이드 번호가 캡셔닝 데이터 범위를 벗어나면 건너뛰기
+        if slide_number > len(image_captioning_data):
             continue
 
-        # 해당 슬라이드의 이미지
-        slide_image = slide_images[slide_number - 1]
+        # 해당 슬라이드의 캡셔닝 데이터
+        slide_caption = image_captioning_data[slide_number - 1]
 
         # 세그먼트 텍스트 병합
         segments = slide_data.get("Segments", {})
@@ -234,7 +221,7 @@ def create_summary(pdf_path: str = "assets/os_35.pdf", skip_segment_split: bool 
         )
 
         # 요약 생성
-        summary = generate_summary(slide_image, merged_segments)
+        summary = generate_summary(slide_caption, merged_segments)
         
         # 결과 저장
         summaries[slide_key] = {
@@ -258,4 +245,26 @@ def create_summary(pdf_path: str = "assets/os_35.pdf", skip_segment_split: bool 
     return summaries
 
 if __name__ == "__main__":
-    create_summary(skip_segment_split=True) 
+    import sys
+    
+    # JSON 파일 경로
+    image_captioning_path = "data/image_captioning/image_captioning.json"
+    segment_mapping_path = "data/segment_mapping/segment_mapping.json"
+    
+    try:
+        # JSON 파일 읽기
+        with open(image_captioning_path, 'r', encoding='utf-8') as f:
+            image_captioning_data = json.load(f)
+            
+        with open(segment_mapping_path, 'r', encoding='utf-8') as f:
+            segment_mapping_data = json.load(f)
+        
+        # JSON 데이터를 직접 전달
+        results = create_summary(
+            image_captioning_data=image_captioning_data,
+            segment_mapping_data=segment_mapping_data
+        )
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"오류 발생: {str(e)}")
+        sys.exit(1) 

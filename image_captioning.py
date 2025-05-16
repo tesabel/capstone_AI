@@ -77,12 +77,17 @@ def analyze_image(image_url: str) -> dict:
 {
   "type": "<meta|code|image|content>",
   "title_keywords": ["<1-2 core keywords>"],
-  "secondary_keywords": ["<3-5 additional terms>"]
+  "secondary_keywords": ["<3-5 additional terms>"],
+  "detail": "<detailed description based on type>"
 }
 
 Field meanings:
-- "title_keywords": 1-2 core terms that best summarize the slide’s main idea.
+- "title_keywords": 1-2 core terms that best summarize the slide's main idea.
 - "secondary_keywords": 1–5 specific technical or domain terms that actually appear on the slide; avoid broad or generic words.
+- "detail": Detailed description of the slide content:
+  * For type="image": Provide a comprehensive description of the visual elements, their arrangement, and significance.
+  * For type="code": Explain the code's purpose, key functions, and implementation details.
+  * For other types: Provide a brief 1-2 sentence summary of the main content.
 
 Type definitions (choose exactly one):
 - meta   : cover, agenda, learning-objective, summary, or closing slides that must never be mapped to audio segments.
@@ -122,9 +127,13 @@ Rules:
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Additional 3-5 technical or related terms"
+                            },
+                            "detail": {
+                                "type": "string",
+                                "description": "Detailed description of the slide content"
                             }
                         },
-                        "required": ["type", "title_keywords", "secondary_keywords"]
+                        "required": ["type", "title_keywords", "secondary_keywords", "detail"]
                     }
                 }
             ],
@@ -140,7 +149,6 @@ def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
     
     Args:
         pdf_path: PDF 파일 경로
-        skip_segment_split: 세그먼트 분리 단계 건너뛰기 여부
         
     Returns:
         각 페이지의 키워드 정보와 타입을 담은 JSON 리스트
@@ -164,7 +172,8 @@ def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
                 "slide_number": i,
                 "type": analysis["type"],
                 "title_keywords": analysis["title_keywords"],
-                "secondary_keywords": analysis["secondary_keywords"]
+                "secondary_keywords": analysis["secondary_keywords"],
+                "detail": analysis["detail"]
             }
             results.append(result)
         
@@ -184,8 +193,7 @@ def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
 
 if __name__ == "__main__":
     try:
-        import sys
-        pdf_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.pdf"
+        pdf_path = "assets/image_captioning_test_4.pdf"
         results = image_captioning(pdf_path=pdf_path)
         print(json.dumps(results, indent=2, ensure_ascii=False))
     except Exception as e:

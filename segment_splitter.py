@@ -12,7 +12,7 @@ import os
 import json
 import requests
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 # .env 파일에서 환경 변수 로드
@@ -87,19 +87,17 @@ class ClovaSegmenter:
             return {"error": f"알 수 없는 오류: {str(e)}"}
 
 def segment_split(
-    audio_path: str = "assets/os_35.m4a",
-    skip_stt: bool = True,
+    stt_data: Dict[str, Any],
     alpha: float = 0.5,
     seg_cnt: int = -1,
     post_process: bool = True,
     max_size: int = 2000,
-    min_size: int = 200
-) -> Dict[str, Any]:
-    """세그먼트 분리 함수
+    min_size: int = 200,
+) -> List[Dict[str, Any]]:
+    """세그먼트 분리를 수행합니다.
     
     Args:
-        audio_path: 오디오 파일 경로
-        skip_stt: STT 변환을 건너뛸지 여부
+        stt_data: STT 결과 JSON 데이터
         alpha: 세그먼트 분리 임계값
         seg_cnt: 세그먼트 수 (-1 또는 1 이상)
         post_process: 후처리 여부
@@ -107,34 +105,14 @@ def segment_split(
         min_size: 후처리 시 최소 문단 크기
         
     Returns:
-        세그먼트 분리 결과
+        세그먼트 분리 결과 리스트
     """
     try:
-        text = ""  # text 변수 초기화
-        
-        # STT 결과 파일 경로
-        stt_result_path = "data/stt_result/stt_result.json"
-        
-        # STT 결과 읽기
-        if skip_stt:
-            if not os.path.exists(stt_result_path):
-                raise FileNotFoundError(f"STT 결과 파일을 찾을 수 없습니다: {stt_result_path}")
-            
-            with open(stt_result_path, 'r', encoding='utf-8') as f:
-                stt_data = json.load(f)
-                text = stt_data.get('text', '')  # 'text' 키 사용
-        else:
-            # STT 함수 호출
-            from convert_audio import transcribe_audio  # convert_audio 모듈 import
-            stt_result = transcribe_audio(audio_path)  # STT 함수 호출
-            if stt_result:
-                text = stt_result.get('text', '')  # 'text' 키 사용
-            else:
-                raise ValueError("STT 변환 결과를 가져오는데 실패했습니다.")
-        
+        # STT 결과에서 텍스트 추출
+        text = stt_data.get("text", "")
         if not text:
-            raise ValueError("처리할 텍스트가 없습니다.")
-        
+            raise ValueError("STT 결과에 텍스트가 없습니다.")
+
         # CLOVA API 호출
         segmenter = ClovaSegmenter()
         response = segmenter.segment_text(
@@ -171,15 +149,38 @@ def segment_split(
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(formatted_result, f, ensure_ascii=False, indent=2)
             
+            print(f"[INFO] 세그먼트 분리 결과가 {output_path}에 저장되었습니다")
+            
             return formatted_result
         else:
             raise ValueError("세그먼테이션 결과를 가져오는데 실패했습니다.")
             
     except Exception as e:
-        print(f"오류 발생: {str(e)}")
         return {"error": str(e)}
+
 
 if __name__ == "__main__":
     import sys
-    audio_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.m4a"
-    segment_split(audio_path=audio_path, skip_stt=True, alpha=0.5, seg_cnt=-1, post_process=True, max_size=2000, min_size=200)
+    
+    # 기본 경로 설정
+    stt_path = "data/stt_result/stt_result.json"
+    
+    try:
+        # STT 결과 로드
+        with open(stt_path, 'r', encoding='utf-8') as f:
+            stt_data = json.load(f)
+        
+        # 세그먼트 분리 실행
+        results = segment_split(
+            stt_data=stt_data,
+            alpha=0.5,
+            seg_cnt=-1,
+            post_process=True,
+            max_size=2000,
+            min_size=200
+        )
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        
+    except Exception as e:
+        print(f"오류 발생: {str(e)}")
+        sys.exit(1)

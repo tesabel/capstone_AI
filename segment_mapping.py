@@ -50,57 +50,6 @@ client = OpenAI(
 )
 
 # ----------------------------------------------------------------------------
-# 데이터 로드
-# ----------------------------------------------------------------------------
-
-def load_segments(audio_path: str = "assets/os_35.m4a", skip_stt: bool = True) -> List[Dict[str, Any]]:
-    """Return a list of segments of the form ::
-            {"id": int, "text": str}
-    If *skip_stt* is **True** the cached file ``data/segment_split/segment_split.json``
-    is used. Otherwise ``segment_splitter.main`` is executed.
-    """
-    if skip_stt:
-        # 더미 데이터 로드
-        path = "data/segment_split/segment_split.json"
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"STT result not found: {path}")
-        with open(path, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-
-        # Support both `[{}, …]` and `{segments: […]}` layouts
-        if isinstance(cached, list):
-            return cached
-        if "segments" in cached:
-            return cached["segments"]
-        raise ValueError("Unexpected STT result format – expected list or {'segments': …}")
-
-    # 실제 STT 실행
-    from segment_splitter import segment_split
-
-    segs = segment_split(audio_path=audio_path, skip_stt=False)
-    if isinstance(segs, dict) and "error" in segs:
-        raise RuntimeError(segs["error"])
-    return segs
-
-
-def load_slides(pdf_path: str = "assets/os_35.pdf", skip_image_captioning: bool = True) -> List[Dict[str, Any]]:
-    """Load image‑captioning results and drop slides whose *type* == "meta"."""
-    if skip_image_captioning:
-        # 더미 데이터 로드
-        path = "data/image_captioning/image_captioning.json"
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Captioning result not found: {path}")
-        with open(path, "r", encoding="utf-8") as f:
-            slides = json.load(f)
-    else:
-        # 실제 이미지 캡셔닝 실행
-        from image_captioning import image_captioning
-
-        slides = image_captioning(pdf_path=pdf_path)
-
-    return [s for s in slides if s.get("type") != "meta"]
-
-# ----------------------------------------------------------------------------
 # 세그먼트 병합 (메세지 크기 조정)
 # ----------------------------------------------------------------------------
 
@@ -150,7 +99,8 @@ def build_slide_prompt(slides: List[Dict[str, Any]]) -> str:
         lines.append(
             f"- Slide {s['slide_number']}\n"
             f"  - title_keywords: {json.dumps(s['title_keywords'], ensure_ascii=False)}\n"
-            f"  - secondary_keywords: {json.dumps(s['secondary_keywords'], ensure_ascii=False)}"
+            f"  - secondary_keywords: {json.dumps(s['secondary_keywords'], ensure_ascii=False)}\n"
+            f"  - detail: {s['detail']}"
         )
     return "\n".join(lines)
 
@@ -294,36 +244,27 @@ def save_results(mappings: List[Dict[str, int]], segments: List[Dict[str, Any]])
 # ----------------------------------------------------------------------------
 
 def segment_mapping(
-    pdf_path: str = "assets/os_35.pdf",
-    audio_path: str = "assets/os_35.m4a",
-    skip_segment_split: bool = True,
-    skip_stt: bool = True,
-    skip_image_captioning: bool = True,
+    image_captioning_data: List[Dict[str, Any]],
+    segment_split_data: List[Dict[str, Any]],
     slide_window: int = 6,
     max_segment_length: int = 2000,
     min_segment_length: int = 500,
-    alpha: float = 0.5,
-    seg_cnt: int = -1,
-    post_process: bool = True,
-    max_size: int = 2000,
-    min_size: int = 200,
 ) -> Dict[str, Any]:
-    # 1. 데이터 로드 -------------------------------------------------------------------
-    if skip_segment_split:
-        segments = load_segments(audio_path=audio_path, skip_stt=True)
-    else:
-        from segment_splitter import segment_split
-        segments = segment_split(
-            audio_path=audio_path,
-            skip_stt=skip_stt,
-            alpha=alpha,
-            seg_cnt=seg_cnt,
-            post_process=post_process,
-            max_size=max_size,
-            min_size=min_size
-        )
+    """세그먼트 매핑을 수행합니다.
     
-    slides = load_slides(pdf_path=pdf_path, skip_image_captioning=skip_image_captioning)
+    Args:
+        image_captioning_data: 이미지 캡셔닝 결과 JSON 데이터
+        segment_split_data: 세그먼트 분리 결과 JSON 데이터
+        slide_window: 현재 중심 슬라이드 전후로 포함할 슬라이드 수
+        max_segment_length: 병합 후 요청당 최대 문자 수
+        min_segment_length: 마지막 배치가 이보다 짧으면 이전 배치에 추가
+        
+    Returns:
+        매핑 결과 JSON 데이터
+    """
+    # 1. 데이터 준비 -------------------------------------------------------------------
+    segments = segment_split_data
+    slides = [s for s in image_captioning_data if s.get("type") != "meta"]
 
     # 2. 세그먼트 메시지 준비 ----------------------------------------------------
     batches = merge_segments(segments, max_segment_length, min_segment_length)
@@ -365,6 +306,34 @@ def segment_mapping(
 
 if __name__ == "__main__":
     import sys
-    pdf_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.pdf"
-    audio_path = sys.argv[2] if len(sys.argv) > 2 else "assets/os_35.m4a"
-    segment_mapping(pdf_path=pdf_path, audio_path=audio_path, skip_segment_split=True, skip_stt=True, skip_image_captioning=True, slide_window=6, max_segment_length=2000, min_segment_length=500, alpha=0.5, seg_cnt=-1, post_process=True, max_size=2000, min_size=200)
+    from typing import Dict, Any, List
+    
+    # 기본 경로 설정
+    image_captioning_path = "data/image_captioning/image_captioning.json"
+    segment_split_path = "data/segment_split/segment_split.json"
+    
+    try:
+        # 이미지 캡셔닝 데이터 로드
+        with open(image_captioning_path, 'r', encoding='utf-8') as f:
+            image_captioning_data = json.load(f)
+            
+        # 세그먼트 분리 데이터 로드
+        with open(segment_split_path, 'r', encoding='utf-8') as f:
+            segment_split_data = json.load(f)
+            # Support both `[{}, …]` and `{segments: […]}` layouts
+            if isinstance(segment_split_data, dict) and "segments" in segment_split_data:
+                segment_split_data = segment_split_data["segments"]
+        
+        # 매핑 실행
+        results = segment_mapping(
+            image_captioning_data=image_captioning_data,
+            segment_split_data=segment_split_data,
+            slide_window=6,
+            max_segment_length=2000,
+            min_segment_length=500
+        )
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        
+    except Exception as e:
+        print(f"오류 발생: {str(e)}")
+        sys.exit(1)
