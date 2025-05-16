@@ -13,7 +13,7 @@ from typing import Dict, Any
 from convert_audio import transcribe_audio
 from segment_splitter import segment_split
 from image_captioning import image_captioning
-from segment_mapping import segment_mapping as segment_mapping_main
+from segment_mapping import segment_mapping
 from summary import create_summary
 
 # 설정값 정의
@@ -58,7 +58,7 @@ class Config:
 def save_results(result: Dict[str, Any]) -> str:
     """결과를 JSON 파일로 저장합니다."""
     # 결과 디렉토리 생성
-    output_dir = "result"
+    output_dir = "data/result"
     os.makedirs(output_dir, exist_ok=True)
     
     # 현재 시간을 파일명에 포함
@@ -122,20 +122,12 @@ def main() -> Dict[str, Any]:
     # 4. 세그먼트 매핑 실행
     mapping_result = None
     if not Config.SKIP_SEGMENT_MAPPING:
-        mapping_result = segment_mapping_main(
-            pdf_path=Config.PDF_PATH,
-            audio_path=Config.AUDIO_PATH,
-            skip_segment_split=True,  # 이미 위에서 처리했으므로 스킵
-            skip_stt=True,  # 이미 위에서 처리했으므로 스킵
-            skip_image_captioning=True,  # 이미 위에서 처리했으므로 스킵
+        mapping_result = segment_mapping(
+            image_captioning_data=image_captioning_result,
+            segment_split_data=segment_result,
             slide_window=Config.SLIDE_WINDOW,
             max_segment_length=Config.MAX_SEGMENT_LENGTH,
-            min_segment_length=Config.MIN_SEGMENT_LENGTH,
-            alpha=Config.ALPHA,
-            seg_cnt=Config.SEG_CNT,
-            post_process=Config.POST_PROCESS,
-            max_size=Config.MAX_SIZE,
-            min_size=Config.MIN_SIZE
+            min_segment_length=Config.MIN_SEGMENT_LENGTH
         )
     else:
         # 가장 최근 세그먼트 매핑 결과 파일 찾기
@@ -187,8 +179,18 @@ def main() -> Dict[str, Any]:
             "Bullet Point Notes": summary.get("Bullet Point Notes", ""),
             "Keyword Notes": summary.get("Keyword Notes", ""),
             "Chart/Table Summary": summary.get("Chart/Table Summary", {}),
-            "Segments": segments
+            "Segments": {}
         }
+        
+        # 세그먼트 추가
+        for segment_key, segment_data in segments.items():
+            final_result[slide_key]["Segments"][segment_key] = {
+                "text": segment_data.get("text", ""),
+                "isImportant": "false",
+                "reason": "",
+                "linkedConcept": "",
+                "pageNumber": ""
+            }
 
     # 결과 저장
     saved_path = save_results(final_result)
@@ -202,4 +204,4 @@ if __name__ == "__main__":
         Config.PDF_PATH = sys.argv[1]
     if len(sys.argv) > 2:
         Config.AUDIO_PATH = sys.argv[2]
-    main() 
+    main()
