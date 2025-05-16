@@ -86,7 +86,8 @@ class ClovaSegmenter:
         except Exception as e:
             return {"error": f"알 수 없는 오류: {str(e)}"}
 
-def main(
+def segment_split(
+    audio_path: str = "assets/os_35.m4a",
     skip_stt: bool = True,
     alpha: float = 0.5,
     seg_cnt: int = -1,
@@ -94,9 +95,10 @@ def main(
     max_size: int = 2000,
     min_size: int = 200
 ) -> Dict[str, Any]:
-    """메인 함수
+    """세그먼트 분리 함수
     
     Args:
+        audio_path: 오디오 파일 경로
         skip_stt: STT 변환을 건너뛸지 여부
         alpha: 세그먼트 분리 임계값
         seg_cnt: 세그먼트 수 (-1 또는 1 이상)
@@ -124,7 +126,7 @@ def main(
         else:
             # STT 함수 호출
             from convert_audio import transcribe_audio  # convert_audio 모듈 import
-            stt_result = transcribe_audio()  # STT 함수 호출
+            stt_result = transcribe_audio(audio_path)  # STT 함수 호출
             if stt_result:
                 text = stt_result.get('text', '')  # 'text' 키 사용
             else:
@@ -178,4 +180,6 @@ def main(
         return {"error": str(e)}
 
 if __name__ == "__main__":
-    main()
+    import sys
+    audio_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.m4a"
+    segment_split(audio_path=audio_path, skip_stt=True, alpha=0.5, seg_cnt=-1, post_process=True, max_size=2000, min_size=200)

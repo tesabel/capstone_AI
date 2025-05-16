@@ -10,15 +10,20 @@ import os
 from datetime import datetime
 from typing import Dict, List, Any
 
-from segment_mapping import main as segment_mapping_main
+from segment_mapping import segment_mapping as segment_mapping_main
 
 # 설정값 정의
 class Config:
+    # ---------------------------- 파일 경로 설정 ----------------------------
+    # PDF 파일 경로
+    PDF_PATH = "assets/os_35.pdf"
+    # 오디오 파일 경로
+    AUDIO_PATH = "assets/os_35.m4a"
+
     # ---------------------------- 과정 스킵 여부 ----------------------------
     SKIP_SEGMENT_SPLIT = False
     SKIP_STT = False
     SKIP_IMAGE_CAPTIONING = False
-
 
     # ---------------------------- 클로바 세그먼트 분리 파라미터 ----------------------------
     # 민감도 조정 파라미터 (-1.5 ~ 1.5)
@@ -36,7 +41,6 @@ class Config:
     # 세그먼트 최소 문자 수 (후처리)
     MIN_SEGMENT_LENGTH = 500
 
-
     # ---------------------------- 프롬프트 메세지 단위 크기 조정 ----------------------------
     # 관찰할 슬라이드 개수 
     SLIDE_WINDOW = 6
@@ -50,6 +54,8 @@ class Config:
 def load_segments_data() -> List[Dict[str, Any]]:
     """segment_mapping.py의 결과를 로드합니다."""
     return segment_mapping_main(
+        pdf_path=Config.PDF_PATH,
+        audio_path=Config.AUDIO_PATH,
         skip_segment_split=Config.SKIP_SEGMENT_SPLIT,
         skip_stt=Config.SKIP_STT,
         skip_image_captioning=Config.SKIP_IMAGE_CAPTIONING,
@@ -140,4 +146,9 @@ def main() -> Dict[str, Any]:
     return result
 
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        Config.PDF_PATH = sys.argv[1]
+    if len(sys.argv) > 2:
+        Config.AUDIO_PATH = sys.argv[2]
     main() 

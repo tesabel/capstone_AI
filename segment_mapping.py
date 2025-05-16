@@ -53,13 +53,14 @@ client = OpenAI(
 # 데이터 로드
 # ----------------------------------------------------------------------------
 
-def load_segments(skip_stt: bool = True) -> List[Dict[str, Any]]:
+def load_segments(audio_path: str = "assets/os_35.m4a", skip_stt: bool = True) -> List[Dict[str, Any]]:
     """Return a list of segments of the form ::
             {"id": int, "text": str}
     If *skip_stt* is **True** the cached file ``data/segment_split/segment_split.json``
     is used. Otherwise ``segment_splitter.main`` is executed.
     """
     if skip_stt:
+        # 더미 데이터 로드
         path = "data/segment_split/segment_split.json"
         if not os.path.exists(path):
             raise FileNotFoundError(f"STT result not found: {path}")
@@ -73,32 +74,34 @@ def load_segments(skip_stt: bool = True) -> List[Dict[str, Any]]:
             return cached["segments"]
         raise ValueError("Unexpected STT result format – expected list or {'segments': …}")
 
-    # Live STT 실행 -------------------------------------------------------------
-    from segment_splitter import main as segment_splitter_main  # type: ignore
+    # 실제 STT 실행
+    from segment_splitter import segment_split
 
-    segs = segment_splitter_main(skip_stt=False)
+    segs = segment_split(audio_path=audio_path, skip_stt=False)
     if isinstance(segs, dict) and "error" in segs:
         raise RuntimeError(segs["error"])
     return segs
 
 
-def load_slides(skip_image_captioning: bool = True) -> List[Dict[str, Any]]:
+def load_slides(pdf_path: str = "assets/os_35.pdf", skip_image_captioning: bool = True) -> List[Dict[str, Any]]:
     """Load image‑captioning results and drop slides whose *type* == "meta"."""
     if skip_image_captioning:
+        # 더미 데이터 로드
         path = "data/image_captioning/image_captioning.json"
         if not os.path.exists(path):
             raise FileNotFoundError(f"Captioning result not found: {path}")
         with open(path, "r", encoding="utf-8") as f:
             slides = json.load(f)
     else:
-        from image_captioning import process_pdf  # type: ignore
+        # 실제 이미지 캡셔닝 실행
+        from image_captioning import image_captioning
 
-        slides = process_pdf(skip_segment_split=True)
+        slides = image_captioning(pdf_path=pdf_path)
 
     return [s for s in slides if s.get("type") != "meta"]
 
 # ----------------------------------------------------------------------------
-# Transformation & prompt‑building 
+# 세그먼트 병합 (메세지 크기 조정)
 # ----------------------------------------------------------------------------
 
 def merge_segments(
@@ -106,13 +109,9 @@ def merge_segments(
     max_len: int,
     min_len: int,
 ) -> List[str]:
-    """Merge adjacent segments so each request stays under *max_len* characters.
-    The merged block keeps **each** segment clearly separated – exactly one
-    block per line as in ::
-        - Segment ID: 1
-        Text: …
-    The final short remainder (if any) is appended to the previous batch when
-    its length is below *min_len*.
+    """
+    인접한 세그먼트를 병합하여 각 요청이 *max_len* 문자 이하가 되도록 병합
+    마지막에 남는 세그먼트 길이가 *min_len*보다 짧다면 이전 세그먼트와 병합
     """
     batches: List[str] = []
     cur: List[str] = []
@@ -134,6 +133,9 @@ def merge_segments(
     return batches
 
 
+"""
+참조할 슬라이드 크기만큼 메세지 크기 조정
+"""
 def slice_slides(slides: List[Dict[str, Any]], centre: int, window: int) -> List[Dict[str, Any]]:
     """Return ``slides`` whose *slide_number* is within ``centre±window``."""
     start = max(1, centre - window)
@@ -152,6 +154,10 @@ def build_slide_prompt(slides: List[Dict[str, Any]]) -> str:
         )
     return "\n".join(lines)
 
+
+# ----------------------------------------------------------------------------
+# 매핑 API 호출
+# ----------------------------------------------------------------------------
 
 def call_mapping_api(
     segments_block: str, 
@@ -250,10 +256,12 @@ def save_results(mappings: List[Dict[str, int]]) -> str:
     return path
 
 # ----------------------------------------------------------------------------
-# Main
+# 세그먼트 매핑 메인함수
 # ----------------------------------------------------------------------------
 
-def main(
+def segment_mapping(
+    pdf_path: str = "assets/os_35.pdf",
+    audio_path: str = "assets/os_35.m4a",
     skip_segment_split: bool = True,
     skip_stt: bool = True,
     skip_image_captioning: bool = True,
@@ -266,13 +274,13 @@ def main(
     max_size: int = 2000,
     min_size: int = 200,
 ) -> List[Dict[str, int]]:
-    """엔드투엔드 매핑 루틴. 파라미터 상세는 모듈 독스트링을 참조하세요."""
     # 1. 데이터 로드 -------------------------------------------------------------------
     if skip_segment_split:
-        segments = load_segments(skip_stt=True)
+        segments = load_segments(audio_path=audio_path, skip_stt=True)
     else:
-        from segment_splitter import main as segment_splitter_main
-        segments = segment_splitter_main(
+        from segment_splitter import segment_split
+        segments = segment_split(
+            audio_path=audio_path,
             skip_stt=skip_stt,
             alpha=alpha,
             seg_cnt=seg_cnt,
@@ -281,7 +289,7 @@ def main(
             min_size=min_size
         )
     
-    slides = load_slides(skip_image_captioning)
+    slides = load_slides(pdf_path=pdf_path, skip_image_captioning=skip_image_captioning)
 
     # 2. 세그먼트 메시지 준비 ----------------------------------------------------
     batches = merge_segments(segments, max_segment_length, min_segment_length)
@@ -322,4 +330,7 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    pdf_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.pdf"
+    audio_path = sys.argv[2] if len(sys.argv) > 2 else "assets/os_35.m4a"
+    segment_mapping(pdf_path=pdf_path, audio_path=audio_path, skip_segment_split=True, skip_stt=True, skip_image_captioning=True, slide_window=6, max_segment_length=2000, min_segment_length=500, alpha=0.5, seg_cnt=-1, post_process=True, max_size=2000, min_size=200)

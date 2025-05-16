@@ -40,7 +40,7 @@ def split_audio_file(input_file, max_size_mb=24):
     
     return split_files
 
-def transcribe_audio():
+def transcribe_audio(audio_file_path: str = "assets/os_35.m4a"):
     # API 키 확인
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
@@ -50,9 +50,6 @@ def transcribe_audio():
     
     # OpenAI 클라이언트 초기화
     client = OpenAI(api_key=api_key)
-    
-    # 입력 파일 경로
-    audio_file_path = "assets/os_35.m4a"
     
     # 출력 디렉토리 생성
     output_dir = "data/stt_result"
@@ -104,4 +101,6 @@ def transcribe_audio():
         return None
 
 if __name__ == "__main__":
-    transcribe_audio()
+    import sys
+    audio_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.m4a"
+    transcribe_audio(audio_path)

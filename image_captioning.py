@@ -110,7 +110,7 @@ Rules:
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "enum": ["objective", "code", "image", "content"],
+                                "enum": ["meta", "code", "image", "content"],
                                 "description": "The type of the slide based on its content"
                             },
                             "title_keywords": {
@@ -135,19 +135,17 @@ Rules:
     except Exception as e:
         raise Exception(f"이미지 분석 중 오류 발생: {str(e)}")
 
-def process_pdf(skip_segment_split: bool = True) -> list:
+def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
     """PDF 파일을 처리하여 각 페이지의 키워드와 타입을 추출합니다.
     
     Args:
+        pdf_path: PDF 파일 경로
         skip_segment_split: 세그먼트 분리 단계 건너뛰기 여부
         
     Returns:
         각 페이지의 키워드 정보와 타입을 담은 JSON 리스트
     """
     try:
-        # PDF 파일 경로
-        pdf_path = "assets/os_35.pdf"
-        
         # PDF를 이미지로 변환
         encoded_images = convert_pdf_to_images(pdf_path)
         
@@ -186,7 +184,9 @@ def process_pdf(skip_segment_split: bool = True) -> list:
 
 if __name__ == "__main__":
     try:
-        results = process_pdf()
+        import sys
+        pdf_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.pdf"
+        results = image_captioning(pdf_path=pdf_path)
         print(json.dumps(results, indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"오류 발생: {str(e)}") 
