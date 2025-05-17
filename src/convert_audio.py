@@ -101,6 +101,5 @@ def transcribe_audio(audio_file_path: str = "assets/os_35.m4a"):
         return None
 
 if __name__ == "__main__":
-    import sys
-    audio_path = sys.argv[1] if len(sys.argv) > 1 else "assets/os_35.m4a"
+    audio_path = "assets/os_35.m4a"
     transcribe_audio(audio_path)

@@ -10,11 +10,11 @@ import os
 from datetime import datetime
 from typing import Dict, Any
 
-from convert_audio import transcribe_audio
-from segment_splitter import segment_split
-from image_captioning import image_captioning
-from segment_mapping import segment_mapping
-from summary import create_summary
+from src.convert_audio import transcribe_audio
+from src.segment_splitter import segment_split
+from src.image_captioning import image_captioning
+from src.segment_mapping import segment_mapping
+from src.summary import create_summary
 
 # 설정값 정의
 class Config:
@@ -25,14 +25,14 @@ class Config:
     AUDIO_PATH = "assets/os_35.m4a"
 
     # ---------------------------- 과정 스킵 여부 ----------------------------
-    SKIP_SEGMENT_SPLIT = True
     SKIP_STT = True
+    SKIP_SEGMENT_SPLIT = True
     SKIP_IMAGE_CAPTIONING = True
     SKIP_SEGMENT_MAPPING = True
-    SKIP_SUMMARY = True
+    SKIP_SUMMARY = False
 
     # ---------------------------- 클로바 세그먼트 분리 파라미터 ----------------------------
-    # 민감도 조정 파라미터 (-1.5 ~ 1.5)
+    # 민감도 조정 파라미터 (-1.5 ~ 1.5) (-100 = 최적)
     # 클수록 더 많은 세그먼트로 분리
     ALPHA = 0.5
 
@@ -48,7 +48,7 @@ class Config:
     MIN_SEGMENT_LENGTH = 500
 
     # ---------------------------- 프롬프트 메세지 단위 크기 조정 ----------------------------
-    # 관찰할 슬라이드 개수 
+    # 참조할 슬라이드 개수 
     SLIDE_WINDOW = 6
     # 최대 문자 수  
     MAX_SIZE = 2000
@@ -199,9 +199,4 @@ def main() -> Dict[str, Any]:
     return final_result
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        Config.PDF_PATH = sys.argv[1]
-    if len(sys.argv) > 2:
-        Config.AUDIO_PATH = sys.argv[2]
     main()

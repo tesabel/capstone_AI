@@ -55,78 +55,58 @@ def load_json_file(file_path: str) -> Dict[str, Any]:
 
 def generate_summary(slide_data: Dict[str, Any], merged_segments: str) -> Dict[str, Any]:
     """단일 슬라이드에 대한 요약을 생성합니다."""
-    prompt = f"""
-You are an expert in creating structured notes based on long user inputs.
-
-The user's input consists of:
-- A **slide analysis** that shows the lecture content details, and
-- A set of **matching lecture segments** explaining details related to that slide.
-
-Slide Analysis:
-\"\"\"
+    prompt = fprompt = f"""
+### Slide Analysis
 Type: {slide_data['type']}
 Title Keywords: {', '.join(slide_data['title_keywords'])}
 Secondary Keywords: {', '.join(slide_data['secondary_keywords'])}
 Detail: {slide_data['detail']}
-\"\"\"
 
-Matched Lecture Segments:
-\"\"\"
+### Matched Lecture Segments
 {merged_segments}
-\"\"\"
 
-# Important Writing Rules:
+## Writing Guidelines  ── FOLLOW EXACTLY
+1. concise_summary  
+   • 7–8 short sentences.  
+   • **Bold** each core keyword once. 
 
-**ABSOLUTELY MUST** use the exact following titles, numbered exactly as shown:
-   - "1. Concise Summary Notes"
-   - "2. Bullet Point Notes"
-   - "3. Keyword Notes"
-   - "4. Chart/Table Summary"
+2. bullet_points  
+   • Use the "∙" bullet symbol.  
+   • One sentence or phrase per bullet.  
+   • End each bullet entry with (\n).
 
-1. **Concise Summary Notes**  
-- Summarize the combined content into natural sentences within 7–8 lines.
+3. keywords  
+   • About 10 entries in the form **Keyword** – (explanation).  
+   • End each keyword entry with (\n).
 
-2. **Bullet Point Notes**  
-- List the key points clearly and briefly in bullet points.  
-- Each point should be one sentence or a short phrase.
+4. chart_summary  
+   • Provide a table / step list if meaningful; otherwise write "Omitted".  
 
-3. **Keyword Notes**  
-- Extract and list around 10 major keywords, concepts, or important terms.  
-- Provide a brief explanation for each keyword.
 
-4. **Chart/Table Summary**  
-- Try your best to summarize the content in a **chart or table format** if possible.
-- A table is especially helpful when listing concepts, comparing items, or explaining step-by-step processes.  
-- Only write "Omitted" if it is clearly impossible to express the content in a structured chart or table.
+## Example
+concise_summary
+Operating systems manage **resources**, provide **abstraction**, and ensure **security**. They coordinate **processes** and **threads**, ...
+bullet_points  
+∙ Manages CPU, memory, and I/O devices
+∙ Provides process & thread abstraction
+∙  ...
 
-Important writing guidelines you must follow:
-- Respond in English if the user input is in English; respond in Korean if the input is in Korean.
-- Make the notes concise and clear so that users can understand quickly.
-- Eliminate redundant expressions and maintain a logical flow.
-- Clearly separate each style of note-taking in the output.
-- If a style is not applicable, do not leave it blank; explicitly write Omitted.
-- If there are no matching lecture segments for a slide, generate the notes based as much as possible on the slide image alone.
-- Each style must be written only once. Do not repeat or duplicate the same style multiple times.
 
-# Output Format Example:
+keywords  
+**Process** – (An executing program instance)
+**Thread** – (Lightweight unit of CPU scheduling)
+...
 
-1. 🧠Concise Summary Notes
-(Your concise summary here)
+chart_summary  
+| Component | Role |  
+|-----------|-------------------------------|  
+| CPU       | Executes instructions         |  
+| Memory    | Stores code & data            |  
+...
 
-2. ✅Bullet Point Notes
-(Your bullet points here)
-∙ This is Bullet Point example
-∙ using This point "∙"
-
-3. 🔑Keyword Notes
-(Your keywords here)
-**Continuity** : Maintaining ongoing operations without disruption.  
-**Independence** : Layers functioning without affecting each other.
-
-4. 📊Chart/Table Summary
-(Your table here or "Omitted")
-
-Now, generate the notes accordingly.
+General rules (**FOLLOW EXACTLY**)
+- Write in Korean. 
+- If a part is impossible, output "Omitted" for that part.
 """
 
     # 디버깅을 위한 프롬프트 출력
@@ -225,10 +205,10 @@ def create_summary(
         
         # 결과 저장
         summaries[slide_key] = {
-            "Concise Summary Notes": summary["concise_summary"],
-            "Bullet Point Notes": summary["bullet_points"],
-            "Keyword Notes": summary["keywords"],
-            "Chart/Table Summary": summary["chart_summary"]
+            "Concise Summary Notes": f"🧠Concise Summary Notes\n{summary['concise_summary']}",
+            "Bullet Point Notes": f"✅Bullet Point Notes\n{summary['bullet_points']}",
+            "Keyword Notes": f"🔑Keyword Notes\n{summary['keywords']}",
+            "Chart/Table Summary": f"📊Chart/Table Summary\n{summary['chart_summary']}"
         }
 
     # 결과 저장
@@ -247,17 +227,26 @@ def create_summary(
 if __name__ == "__main__":
     import sys
     
-    # JSON 파일 경로
-    image_captioning_path = "data/image_captioning/image_captioning.json"
-    segment_mapping_path = "data/segment_mapping/segment_mapping.json"
-    
     try:
-        # JSON 파일 읽기
-        with open(image_captioning_path, 'r', encoding='utf-8') as f:
-            image_captioning_data = json.load(f)
+        # 가장 최근 이미지 캡셔닝 결과 파일 찾기
+        captioning_dir = "data/imag_captioning"
+        captioning_files = [f for f in os.listdir(captioning_dir) if f.startswith("image_captioning_")]
+        if captioning_files:
+            latest_captioning = max(captioning_files)
+            with open(os.path.join(captioning_dir, latest_captioning), 'r', encoding='utf-8') as f:
+                image_captioning_data = json.load(f)
+        else:
+            raise Exception("이미지 캡셔닝 결과 파일을 찾을 수 없습니다.")
             
-        with open(segment_mapping_path, 'r', encoding='utf-8') as f:
-            segment_mapping_data = json.load(f)
+        # 가장 최근 세그먼트 매핑 결과 파일 찾기
+        mapping_dir = "data/segment_mapping"
+        mapping_files = [f for f in os.listdir(mapping_dir) if f.startswith("segment_mapping_")]
+        if mapping_files:
+            latest_mapping = max(mapping_files)
+            with open(os.path.join(mapping_dir, latest_mapping), 'r', encoding='utf-8') as f:
+                segment_mapping_data = json.load(f)
+        else:
+            raise Exception("세그먼트 매핑 결과 파일을 찾을 수 없습니다.")
         
         # JSON 데이터를 직접 전달
         results = create_summary(
