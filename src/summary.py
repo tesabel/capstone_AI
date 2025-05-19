@@ -256,4 +256,4 @@ if __name__ == "__main__":
         print(json.dumps(results, indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"오류 발생: {str(e)}")
-        sys.exit(1) 
+        sys.exit(1)

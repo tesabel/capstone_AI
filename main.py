@@ -26,9 +26,9 @@ class Config:
 
     # ---------------------------- 과정 스킵 여부 ----------------------------
     SKIP_STT = True
-    SKIP_SEGMENT_SPLIT = True
-    SKIP_IMAGE_CAPTIONING = True
-    SKIP_SEGMENT_MAPPING = True
+    SKIP_SEGMENT_SPLIT = False
+    SKIP_IMAGE_CAPTIONING = False
+    SKIP_SEGMENT_MAPPING = False
     SKIP_SUMMARY = False
 
     # ---------------------------- 클로바 세그먼트 분리 파라미터 ----------------------------
