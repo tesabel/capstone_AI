@@ -229,8 +229,8 @@ if __name__ == "__main__":
     
     try:
         # 가장 최근 이미지 캡셔닝 결과 파일 찾기
-        captioning_dir = "data/imag_captioning"
-        captioning_files = [f for f in os.listdir(captioning_dir) if f.startswith("image_captioning_")]
+        captioning_dir = "data/image_captioning"
+        captioning_files = [f for f in os.listdir(captioning_dir) if f.startswith("image_captioning")]
         if captioning_files:
             latest_captioning = max(captioning_files)
             with open(os.path.join(captioning_dir, latest_captioning), 'r', encoding='utf-8') as f:
@@ -240,7 +240,7 @@ if __name__ == "__main__":
             
         # 가장 최근 세그먼트 매핑 결과 파일 찾기
         mapping_dir = "data/segment_mapping"
-        mapping_files = [f for f in os.listdir(mapping_dir) if f.startswith("segment_mapping_")]
+        mapping_files = [f for f in os.listdir(mapping_dir) if f.startswith("segment_mapping")]
         if mapping_files:
             latest_mapping = max(mapping_files)
             with open(os.path.join(mapping_dir, latest_mapping), 'r', encoding='utf-8') as f:

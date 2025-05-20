@@ -1,8 +1,10 @@
 # 가상환경
 .venv/
+venv/
 
 # 환경변수 파일
 .env
+env
 
 # 사용자 업로드 및 테스트 파일
 assets/ 
@@ -13,4 +15,5 @@ __pycache__/
 # macOS 시스템 파일
 .DS_Store
 
+# data 파일
 data/

@@ -193,7 +193,7 @@ def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
 
 if __name__ == "__main__":
     try:
-        pdf_path = "assets/image_captioning_test_4.pdf"
+        pdf_path = "assets/os_35.pdf"
         results = image_captioning(pdf_path=pdf_path)
         print(json.dumps(results, indent=2, ensure_ascii=False))
     except Exception as e:
