@@ -14,12 +14,8 @@ DATA_DIR = 'file'
 def create_job_directory(job_id):
     """jobId에 해당하는 디렉토리 구조 생성"""
     job_dir = os.path.join(DATA_DIR, job_id)
-    audio_dir = os.path.join(job_dir, 'audio')
-    
     os.makedirs(job_dir, exist_ok=True)
-    os.makedirs(audio_dir, exist_ok=True)
-    
-    return job_dir, audio_dir
+    return job_dir
 
 @app.route('/api/realTime/start-realtime', methods=['POST'])
 def start_realtime():
@@ -30,7 +26,7 @@ def start_realtime():
         job_id = now.strftime("%Y%m%d_%H%M%S")
         
         # 디렉토리 생성
-        job_dir, _ = create_job_directory(job_id)
+        job_dir = create_job_directory(job_id)
         
         # PDF 파일 저장
         if 'doc_file' in request.files:
@@ -51,21 +47,21 @@ def real_time_process(job_id):
     try:
         # 디렉토리 확인 및 생성
         job_dir = os.path.join(DATA_DIR, job_id)
-        audio_dir = os.path.join(job_dir, 'audio')
         
         if not os.path.exists(job_dir):
             return jsonify({"error": "Job ID not found"}), 404
         
-        os.makedirs(audio_dir, exist_ok=True)
+        # 현재 시간으로 하위 디렉토리 생성
+        now = datetime.now()
+        sub_dir_name = now.strftime("%Y%m%d_%H%M%S")
+        sub_dir = os.path.join(job_dir, sub_dir_name)
+        os.makedirs(sub_dir, exist_ok=True)
         
         # 오디오 파일 저장
         if 'audio_file' in request.files:
             audio_file = request.files['audio_file']
             if audio_file.filename:
-                # 현재 시간으로 오디오 파일명 생성
-                now = datetime.now()
-                audio_filename = f"audio_{now.strftime('%Y%m%d_%H%M%S')}.wav"
-                audio_path = os.path.join(audio_dir, audio_filename)
+                audio_path = os.path.join(sub_dir, "audio.wav")
                 audio_file.save(audio_path)
         
         # 메타 JSON 저장
@@ -73,10 +69,7 @@ def real_time_process(job_id):
             meta_json = request.form['meta_json']
             try:
                 meta_data = json.loads(meta_json)
-                # 현재 시간으로 JSON 파일명 생성
-                now = datetime.now()
-                json_filename = f"meta_{now.strftime('%Y%m%d_%H%M%S')}.json"
-                json_path = os.path.join(job_dir, json_filename)
+                json_path = os.path.join(sub_dir, "meta.json")
                 
                 with open(json_path, 'w', encoding='utf-8') as f:
                     json.dump(meta_data, f, ensure_ascii=False, indent=2)
