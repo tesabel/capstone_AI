@@ -66,7 +66,8 @@ def transcribe_audio(audio_file_path: str = "assets/os_35.m4a"):
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
-                    response_format="text"
+                    response_format="text",
+                    language="ko"
                 )
                 full_transcript.append(transcript)
             
@@ -101,5 +102,5 @@ def transcribe_audio(audio_file_path: str = "assets/os_35.m4a"):
         return None
 
 if __name__ == "__main__":
-    audio_path = "assets/os_35.m4a"
+    audio_path = "assets/audio.wav"
     transcribe_audio(audio_path)
