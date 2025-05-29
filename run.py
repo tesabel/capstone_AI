@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from src.image_captioning import image_captioning
-from src.convert_audio import transcribe_audio
+from src.realtime_convert_audio import transcribe_audio_with_timestamps
 import shutil
 
 class Config:
@@ -175,7 +175,7 @@ def real_time_process(job_id):
             
             if longest_slide is not None:
                 # STT 수행
-                stt_result = transcribe_audio(audio_path)
+                stt_result = transcribe_audio_with_timestamps(audio_path)
                 
                 if stt_result and 'text' in stt_result:
                     # result.json 로드 또는 생성

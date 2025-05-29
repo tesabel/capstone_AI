@@ -8,14 +8,15 @@ from datetime import datetime
 # .env 파일에서 환경 변수 로드
 load_dotenv()
 
-def convert_audio_to_m4a_format(input_path: str, output_path: str):
-    """ffmpeg로 m4a 형식으로 변환"""
+def convert_audio_to_whisper_format(input_path: str, output_path: str):
+    """ffmpeg로 whisper-friendly WAV 형식으로 변환"""
     command = [
         "ffmpeg",
         "-y",  # 기존 파일 덮어쓰기
         "-i", input_path,
-        "-c:a", "aac",  # AAC 인코딩
-        "-b:a", "192k",  # 비트레이트
+        "-ar", "16000",  # 샘플레이트 16kHz
+        "-ac", "1",      # 모노
+        "-c:a", "pcm_s16le",  # 16-bit PCM
         output_path
     ]
     try:
@@ -36,16 +37,16 @@ def transcribe_audio_with_timestamps(audio_file_path: str):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 변환된 m4a 파일 경로
-    converted_path = audio_file_path.replace(".wav", "_converted.m4a")
-    convert_audio_to_m4a_format(audio_file_path, converted_path)
+    # 변환된 파일 경로
+    converted_path = audio_file_path.replace(".wav", "_converted.wav")
+    convert_audio_to_whisper_format(audio_file_path, converted_path)
 
     try:
         with open(converted_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
-                response_format="text",
+                response_format="text"
             )
         
         json_data = {
