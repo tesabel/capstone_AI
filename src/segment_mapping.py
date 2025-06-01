@@ -249,6 +249,7 @@ def segment_mapping(
     slide_window: int = 6,
     max_segment_length: int = 2000,
     min_segment_length: int = 500,
+    progress_callback=None,
 ) -> Dict[str, Any]:
     """세그먼트 매핑을 수행합니다.
     
@@ -258,6 +259,7 @@ def segment_mapping(
         slide_window: 현재 중심 슬라이드 전후로 포함할 슬라이드 수
         max_segment_length: 병합 후 요청당 최대 문자 수
         min_segment_length: 마지막 배치가 이보다 짧으면 이전 배치에 추가
+        progress_callback: 진행률 업데이트 콜백 함수 (current_batch, total_batches)
         
     Returns:
         매핑 결과 JSON 데이터
@@ -273,8 +275,13 @@ def segment_mapping(
     current_centre = slides[0]["slide_number"] if slides else 1
     all_mappings: List[Dict[str, int]] = []
     message_count = 0
+    total_batches = len(batches)
 
-    for batch in batches:
+    for i, batch in enumerate(batches, 1):
+        # 진행률 콜백 호출
+        if progress_callback:
+            progress_callback(i, total_batches)
+            
         relevant_slides = slice_slides(slides, current_centre, slide_window)
         start_slide = relevant_slides[0]["slide_number"] if relevant_slides else 0
         end_slide = relevant_slides[-1]["slide_number"] if relevant_slides else 0

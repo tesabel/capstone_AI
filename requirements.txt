@@ -58,7 +58,7 @@ pyparsing==3.0.9
 pytesseract==0.3.10
 python-dateutil==2.8.2
 pytz==2022.7.1
-pywin32==305
+pywin32==305; sys_platform == "win32"
 pyzmq==25.0.0
 requests==2.28.1
 scikit-learn==1.2.2
@@ -79,3 +79,16 @@ typing_extensions==4.4.0
 urllib3==1.26.12
 wcwidth==0.2.6
 zipp==3.15.0
+websockets==12.0
+google-cloud-speech==2.24.0
+openai==1.54.4
+python-dotenv==1.0.0
+flask==3.0.0
+flask-cors==4.0.0
+flask-sqlalchemy==3.0.5
+pymysql==1.1.0
+pyjwt==2.8.0
+werkzeug==3.0.0
+mysql-connector-python==8.2.0
+pydub==0.25.1
+pdf2image==1.16.3

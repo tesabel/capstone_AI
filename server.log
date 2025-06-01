@@ -1,0 +1,6 @@
+INFO:__main__:WebSocket 스트리밍 STT 서버 시작: ws://0.0.0.0:8001
+INFO:websockets.server:server listening on 0.0.0.0:8001
+INFO:__main__:서버가 시작되었습니다.
+INFO:websockets.server:connection open
+INFO:__main__:새 WebSocket 연결: ('127.0.0.1', 51563)
+INFO:__main__:OpenAI Whisper 초기화 완료

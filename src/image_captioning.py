@@ -144,11 +144,12 @@ Rules:
     except Exception as e:
         raise Exception(f"이미지 분석 중 오류 발생: {str(e)}")
 
-def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
+def image_captioning(pdf_path: str = "assets/os_35.pdf", progress_callback=None) -> list:
     """PDF 파일을 처리하여 각 페이지의 키워드와 타입을 추출합니다.
     
     Args:
         pdf_path: PDF 파일 경로
+        progress_callback: 진행률 업데이트 콜백 함수 (current_page, total_pages)
         
     Returns:
         각 페이지의 키워드 정보와 타입을 담은 JSON 리스트
@@ -156,11 +157,16 @@ def image_captioning(pdf_path: str = "assets/os_35.pdf") -> list:
     try:
         # PDF를 이미지로 변환
         encoded_images = convert_pdf_to_images(pdf_path)
+        total_pages = len(encoded_images)
         
         # 각 이미지에 대해 키워드 추출
         results = []
         for i, img_str in enumerate(encoded_images, 1):
-            print(f"[INFO] 슬라이드 {i} 분석 중...")
+            # 진행률 콜백 호출
+            if progress_callback:
+                progress_callback(i, total_pages)
+            
+            print(f"[INFO] 슬라이드 {i}/{total_pages} 분석 중...")
             # base64 이미지를 URL로 변환
             image_url = f"data:image/jpeg;base64,{img_str}"
             
@@ -195,6 +201,5 @@ if __name__ == "__main__":
     try:
         pdf_path = "assets/os_35.pdf"
         results = image_captioning(pdf_path=pdf_path)
-        print(json.dumps(results, indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"오류 발생: {str(e)}") 
