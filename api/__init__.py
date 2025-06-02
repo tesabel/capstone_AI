@@ -4,8 +4,8 @@ Flask Blueprint들을 등록하고 관리하는 모듈
 """
 
 from flask import Flask
-from .process import process_bp
-from .history import history_bp  
+from .process import process_bp, init_db as init_process_db
+from .history import history_bp, init_db as init_history_db
 from .realtime import realtime_bp
 
 def register_blueprints(app: Flask):
@@ -24,3 +24,8 @@ def register_blueprints(app: Flask):
     print("- /api/process (비실시간 처리)")
     print("- /api/history (히스토리 관리)")
     print("- /api/realtime (실시간 처리)")
+
+def init_databases(db, user_model, conversion_history_model, flask_app):
+    """모든 API 모듈의 데이터베이스 초기화"""
+    init_process_db(db, user_model, conversion_history_model, flask_app)
+    init_history_db(db, user_model, conversion_history_model, flask_app)

@@ -284,9 +284,13 @@ def serve_file(filepath):
         return jsonify({"error": str(e)}), 500
 
 # === API Blueprint 등록 ===
+from api import init_databases
 from api.process import process_bp
 from api.history import history_bp  
 from api.realtime import realtime_bp
+
+# 데이터베이스 초기화 (API 모듈들에 db 인스턴스와 모델들, Flask 앱 전달)
+init_databases(db, User, ConversionHistory, app)
 
 # 기존 API 경로로 등록
 app.register_blueprint(process_bp, url_prefix='/api/process2')

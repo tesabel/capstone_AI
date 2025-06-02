@@ -5,10 +5,13 @@
 
 import os
 import json
-from datetime import datetime
+from contextlib import nullcontext
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
+import jwt
 from flask import Blueprint, request, jsonify, send_file
+from flask_sqlalchemy import SQLAlchemy
 
 # .env 파일 로드
 load_dotenv()
@@ -16,51 +19,146 @@ load_dotenv()
 # Blueprint 생성
 history_bp = Blueprint('history', __name__)
 
+# 데이터베이스 인스턴스 (app에서 초기화됨)
+db = None
+app = None
+
+# JWT 설정
+JWT_SECRET = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+
+# 데이터베이스 모델들
+class User(db.Model if db else object):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True) if db else None
+    email = db.Column(db.String(255), unique=True, nullable=False) if db else None
+    password_hash = db.Column(db.String(255), nullable=False) if db else None
+    name = db.Column(db.String(100), nullable=False) if db else None
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc)) if db else None
+    last_login = db.Column(db.DateTime) if db else None
+    
+    # 관계설정
+    histories = db.relationship('ConversionHistory', backref='user', lazy=True) if db else None
+
+class ConversionHistory(db.Model if db else object):
+    __tablename__ = 'conversion_history'
+    
+    id = db.Column(db.Integer, primary_key=True) if db else None
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False) if db else None
+    job_id = db.Column(db.String(100), unique=True, nullable=False) if db else None
+    filename = db.Column(db.String(255), nullable=False) if db else None
+    notes_json = db.Column(db.JSON, nullable=True) if db else None
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc)) if db else None
+    status = db.Column(db.String(50), default='pending') if db else None  # pending, processing, completed, failed
+
+def init_db(app_db, user_model, conversion_history_model, flask_app=None):
+    """데이터베이스 초기화"""
+    global db, User, ConversionHistory, app
+    db = app_db
+    User = user_model
+    ConversionHistory = conversion_history_model
+    app = flask_app
+
+def verify_jwt_token(token):
+    """JWT 토큰 검증"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def get_current_user():
+    """현재 사용자 정보 가져오기"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    
+    token = auth_header.split(' ')[1]
+    user_id = verify_jwt_token(token)
+    if not user_id:
+        return None
+    
+    return db.session.get(User, user_id) if db else None
+
+def require_auth(f):
+    """인증 데코레이터"""
+    from functools import wraps
+    
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(user, *args, **kwargs)
+    return decorated_function
+
 # 업로드 디렉토리 설정
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'file')
 
 @history_bp.route('/my', methods=['GET'])
-def get_my_history():
-    """변환 이력 목록 조회"""
+@require_auth
+def get_my_history(user):
+    """사용자 변환 이력 조회"""
     try:
-        histories = []
-        
-        # file 디렉토리에서 모든 job 폴더 조회
-        if os.path.exists(UPLOAD_FOLDER):
-            for job_dir in os.listdir(UPLOAD_FOLDER):
-                job_path = os.path.join(UPLOAD_FOLDER, job_dir)
-                
-                if os.path.isdir(job_path):
-                    # result.json 파일이 있는지 확인
-                    result_file = os.path.join(job_path, "result.json")
+        # 데이터베이스에서 사용자의 이력 조회
+        if db:
+            histories_db = ConversionHistory.query.filter_by(user_id=user.id).order_by(ConversionHistory.created_at.desc()).all()
+            
+            result = []
+            for history in histories_db:
+                result.append({
+                    "id": history.id,
+                    "job_id": history.job_id,
+                    "filename": history.filename,
+                    "created_at": history.created_at.isoformat() + "Z",
+                    "notes_json": history.notes_json or {},
+                    "status": history.status
+                })
+            
+            return jsonify(result), 200
+        else:
+            # 데이터베이스가 없을 경우 기존 방식으로 폴백
+            histories = []
+            
+            # file 디렉토리에서 모든 job 폴더 조회
+            if os.path.exists(UPLOAD_FOLDER):
+                for job_dir in os.listdir(UPLOAD_FOLDER):
+                    job_path = os.path.join(UPLOAD_FOLDER, job_dir)
                     
-                    if os.path.exists(result_file):
-                        # 폴더의 수정 시간을 생성 시간으로 사용
-                        created_at = datetime.fromtimestamp(os.path.getctime(job_path))
+                    if os.path.isdir(job_path):
+                        # result.json 파일이 있는지 확인
+                        result_file = os.path.join(job_path, "result.json")
                         
-                        # PDF 파일 찾기
-                        pdf_files = [f for f in os.listdir(job_path) if f.endswith('.pdf')]
-                        filename = pdf_files[0] if pdf_files else 'unknown.pdf'
-                        
-                        # 결과 데이터 로드
-                        try:
-                            with open(result_file, 'r', encoding='utf-8') as f:
-                                notes_json = json.load(f)
-                        except:
-                            notes_json = {}
-                        
-                        histories.append({
-                            "id": job_dir,
-                            "job_id": job_dir,
-                            "filename": filename,
-                            "created_at": created_at.isoformat() + "Z",
-                            "notes_json": notes_json
-                        })
-        
-        # 생성 시간 역순으로 정렬
-        histories.sort(key=lambda x: x['created_at'], reverse=True)
-        
-        return jsonify(histories), 200
+                        if os.path.exists(result_file):
+                            # 폴더의 수정 시간을 생성 시간으로 사용
+                            created_at = datetime.fromtimestamp(os.path.getctime(job_path))
+                            
+                            # PDF 파일 찾기
+                            pdf_files = [f for f in os.listdir(job_path) if f.endswith('.pdf')]
+                            filename = pdf_files[0] if pdf_files else 'unknown.pdf'
+                            
+                            # 결과 데이터 로드
+                            try:
+                                with open(result_file, 'r', encoding='utf-8') as f:
+                                    notes_json = json.load(f)
+                            except:
+                                notes_json = {}
+                            
+                            histories.append({
+                                "id": job_dir,
+                                "job_id": job_dir,
+                                "filename": filename,
+                                "created_at": created_at.isoformat() + "Z",
+                                "notes_json": notes_json
+                            })
+            
+            # 생성 시간 역순으로 정렬
+            histories.sort(key=lambda x: x['created_at'], reverse=True)
+            
+            return jsonify(histories), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
