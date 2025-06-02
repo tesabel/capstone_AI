@@ -222,23 +222,78 @@ def download_file():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@history_bp.route('/delete/<job_id>', methods=['DELETE'])
-def delete_history(job_id):
-    """이력 삭제"""
+@history_bp.route('/my/<job_id>', methods=['DELETE'])
+@require_auth
+def delete_my_history(user, job_id):
+    """사용자 이력 삭제 - DELETE /api/history/my/{jobId}"""
     try:
         import shutil
         
+        # 1. 권한 확인 및 데이터베이스에서 삭제
+        if db:
+            history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+            if not history:
+                return jsonify({
+                    "success": False,
+                    "error": "History not found"
+                }), 404
+            
+            # 데이터베이스에서 삭제
+            db.session.delete(history)
+            db.session.commit()
+            print(f"데이터베이스에서 이력 삭제됨: job_id={job_id}, user_id={user.id}")
+        
+        # 2. file/<jobId> 디렉토리 삭제
         job_path = os.path.join(UPLOAD_FOLDER, job_id)
         
-        if not os.path.exists(job_path):
-            return jsonify({"error": "History not found"}), 404
+        if os.path.exists(job_path):
+            # 디렉토리 전체 삭제
+            shutil.rmtree(job_path)
+            print(f"파일 디렉토리 삭제됨: {job_path}")
         
-        # 디렉토리 전체 삭제
-        shutil.rmtree(job_path)
+        return jsonify({
+            "success": True,
+            "message": "History deleted successfully",
+            "job_id": job_id
+        }), 200
+        
+    except Exception as e:
+        # 데이터베이스 롤백
+        if db:
+            db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@history_bp.route('/delete/<job_id>', methods=['DELETE'])
+@require_auth
+def delete_history(user, job_id):
+    """이력 삭제 (기존 엔드포인트 - 호환성 유지)"""
+    try:
+        import shutil
+        
+        # 권한 확인
+        if db:
+            history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+            if not history:
+                return jsonify({"error": "History not found"}), 404
+            
+            # 데이터베이스에서 삭제
+            db.session.delete(history)
+            db.session.commit()
+        
+        job_path = os.path.join(UPLOAD_FOLDER, job_id)
+        
+        if os.path.exists(job_path):
+            # 디렉토리 전체 삭제
+            shutil.rmtree(job_path)
         
         return jsonify({"message": "History deleted successfully"}), 200
         
     except Exception as e:
+        if db:
+            db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @history_bp.route('/export/<job_id>', methods=['GET'])
