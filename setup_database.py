@@ -22,11 +22,11 @@ def create_database():
             cursor = connection.cursor()
             
             # 데이터베이스 생성
-            cursor.execute("CREATE DATABASE IF NOT EXISTS smart_lecture_note CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-            print("✅ 데이터베이스 'smart_lecture_note' 생성 완료")
+            cursor.execute("CREATE DATABASE IF NOT EXISTS smart_note CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+            print("✅ 데이터베이스 'smart_note' 생성 완료")
             
             # 데이터베이스 선택
-            cursor.execute("USE smart_lecture_note")
+            cursor.execute("USE smart_note")
             print("✅ 데이터베이스 선택 완료")
             
             # 기존 테이블 삭제 (외래 키 제약 조건을 고려한 순서)
@@ -95,7 +95,7 @@ def test_connection():
             host='localhost',
             user='root',
             password='',
-            database='smart_lecture_note'
+            database='smart_note'
         )
         
         if connection.is_connected():

@@ -16,7 +16,7 @@ from werkzeug.utils import secure_filename
 load_dotenv()
 
 # 기존 모듈 import
-from src.image_captioning import image_captioning
+from src.image_captioning import image_captioning, convert_pdf_to_images
 from src.realtime_convert_audio import transcribe_audio_with_timestamps
 
 # Blueprint 생성
@@ -71,215 +71,85 @@ def start_realtime():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@realtime_bp.route('/real-time-process/<job_id>', methods=['POST'])
-def real_time_process(job_id):
-    """실시간 오디오 청크 처리"""
+@realtime_bp.route('/stop-realtime', methods=['POST'])
+def stop_realtime():
+    """실시간 변환 종료 및 PDF를 이미지로 변환"""
     try:
-        # 디렉토리 확인
+        # jobId 가져오기 (query parameter, request body, form data에서)
+        job_id = None
+        
+        # 1. Query parameter에서 확인
+        job_id = request.args.get('jobId')
+        
+        # 2. JSON body에서 확인
+        if not job_id and request.json:
+            job_id = request.json.get('jobId')
+        
+        # 3. Form data에서 확인
+        if not job_id and request.form:
+            job_id = request.form.get('jobId')
+        
+        print(f"[DEBUG] Query args: {dict(request.args)}")
+        print(f"[DEBUG] Request JSON: {request.json}")
+        print(f"[DEBUG] Request form: {dict(request.form) if request.form else None}")
+        print(f"[DEBUG] Final jobId: {job_id}")
+        
+        if not job_id:
+            return jsonify({"error": "jobId is required"}), 400
+        
+        # PDF 파일 경로 확인
         job_dir = os.path.join(UPLOAD_FOLDER, job_id)
         if not os.path.exists(job_dir):
-            return jsonify({"error": "Job not found"}), 404
+            return jsonify({"error": f"Job directory not found: {job_id}"}), 404
         
-        # 현재 시간으로 하위 디렉토리 생성
-        now = datetime.now()
-        sub_dir_name = now.strftime("%Y%m%d_%H%M%S")
-        sub_dir = os.path.join(job_dir, sub_dir_name)
-        os.makedirs(sub_dir, exist_ok=True)
+        # PDF 파일 찾기
+        pdf_files = [f for f in os.listdir(job_dir) if f.lower().endswith('.pdf')]
+        if not pdf_files:
+            return jsonify({"error": "No PDF file found in job directory"}), 404
         
-        audio_path = None
-        meta_data = None
+        pdf_path = os.path.join(job_dir, pdf_files[0])  # 첫 번째 PDF 파일 사용
         
-        # 오디오 파일 저장
-        if 'audio_file' in request.files:
-            audio_file = request.files['audio_file']
-            if audio_file.filename:
-                audio_path = os.path.join(sub_dir, "audio.wav")
-                audio_file.save(audio_path)
+        # 이미지 저장 디렉토리 생성
+        image_dir = os.path.join(job_dir, 'image')
+        os.makedirs(image_dir, exist_ok=True)
+        print(f"[DEBUG] Image directory created: {image_dir}")
         
-        # 메타 JSON 저장
-        if 'meta_json' in request.form:
-            meta_json = request.form['meta_json']
-            try:
-                meta_data = json.loads(meta_json)
-                json_path = os.path.join(sub_dir, "meta.json")
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(meta_data, f, ensure_ascii=False, indent=2)
-            except json.JSONDecodeError:
-                return jsonify({"error": "Invalid JSON format"}), 400
-        
-        # STT 처리
-        if audio_path and meta_data:
-            # 가장 오래 체류한 슬라이드 찾기
-            longest_slide = find_longest_staying_slide(meta_data)
+        # PDF를 이미지로 변환
+        try:
+            from pdf2image import convert_from_path
+            print(f"[DEBUG] Converting PDF: {pdf_path}")
             
-            if longest_slide is not None:
-                # STT 수행
-                stt_result = transcribe_audio_with_timestamps(audio_path)
+            # PDF를 이미지로 변환
+            images = convert_from_path(pdf_path, dpi=200, fmt='PNG')
+            print(f"[DEBUG] Converted {len(images)} pages from PDF")
+            
+            image_urls = []
+            
+            for i, image in enumerate(images, 1):
+                # 이미지 파일명 생성 (1.png, 2.png, ...)
+                image_filename = f"{i}.png"
+                image_path = os.path.join(image_dir, image_filename)
                 
-                if stt_result and 'text' in stt_result:
-                    # result.json 로드 또는 생성
-                    result_data = load_or_create_result_json(job_dir)
-                    
-                    slide_key = f"slide{longest_slide}"
-                    segment_key = f"segment{longest_slide}"
-                    
-                    # 슬라이드 구조 초기화
-                    if slide_key not in result_data:
-                        result_data[slide_key] = {
-                            "Concise Summary Notes": "",
-                            "Bullet Point Notes": "",
-                            "Keyword Notes": "",
-                            "Segments": {
-                                segment_key: {
-                                    "text": "",
-                                    "isImportant": "false",
-                                    "reason": "",
-                                    "linkedConcept": "",
-                                    "pageNumber": ""
-                                }
-                            }
-                        }
-                    
-                    # 세그먼트 구조 초기화
-                    if "Segments" not in result_data[slide_key]:
-                        result_data[slide_key]["Segments"] = {}
-                    
-                    if segment_key not in result_data[slide_key]["Segments"]:
-                        result_data[slide_key]["Segments"][segment_key] = {
-                            "text": "",
-                            "isImportant": "false",
-                            "reason": "",
-                            "linkedConcept": "",
-                            "pageNumber": ""
-                        }
-                    
-                    # 기존 텍스트에 새 STT 결과 추가 (누적)
-                    existing_text = result_data[slide_key]["Segments"][segment_key]["text"]
-                    if existing_text:
-                        result_data[slide_key]["Segments"][segment_key]["text"] = existing_text + " " + stt_result["text"]
-                    else:
-                        result_data[slide_key]["Segments"][segment_key]["text"] = stt_result["text"]
-                    
-                    # result.json 저장
-                    save_result_json(job_dir, result_data)
-                    
-                    return jsonify(result_data), 200
+                # 이미지를 PNG로 저장
+                image.save(image_path, 'PNG', quality=95, optimize=True)
+                print(f"[DEBUG] Saved image: {image_path}")
+                
+                # 파일이 실제로 생성되었는지 확인
+                if os.path.exists(image_path):
+                    file_size = os.path.getsize(image_path)
+                    print(f"[DEBUG] Image file exists, size: {file_size} bytes")
+                else:
+                    print(f"[ERROR] Image file not created: {image_path}")
+                
+                # 이미지 URL 생성
+                image_url = f"/file/{job_id}/image/{image_filename}"
+                image_urls.append(image_url)
+                
+        except Exception as convert_error:
+            print(f"[ERROR] PDF conversion failed: {convert_error}")
+            raise Exception(f"PDF to image conversion failed: {str(convert_error)}")
         
-        # 오디오나 메타데이터가 없을 경우 기존 결과 반환
-        result_data = load_or_create_result_json(job_dir)
-        return jsonify(result_data), 200
+        return jsonify({"image_urls": image_urls}), 200
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@realtime_bp.route('/result/<job_id>', methods=['GET'])
-def get_realtime_result(job_id):
-    """실시간 처리 결과 조회"""
-    try:
-        job_dir = os.path.join(UPLOAD_FOLDER, job_id)
-        if not os.path.exists(job_dir):
-            return jsonify({"error": "Job not found"}), 404
-        
-        result_data = load_or_create_result_json(job_dir)
-        return jsonify(result_data), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@realtime_bp.route('/stop/<job_id>', methods=['POST'])
-def stop_realtime(job_id):
-    """실시간 처리 종료"""
-    try:
-        job_dir = os.path.join(UPLOAD_FOLDER, job_id)
-        if not os.path.exists(job_dir):
-            return jsonify({"error": "Job not found"}), 404
-        
-        # 최종 결과 정리 및 저장
-        result_data = load_or_create_result_json(job_dir)
-        
-        # 종료 시점 정보 추가
-        result_data["_metadata"] = {
-            "ended_at": datetime.now().isoformat(),
-            "status": "stopped"
-        }
-        
-        save_result_json(job_dir, result_data)
-        
-        return jsonify({
-            "message": "Realtime processing stopped",
-            "result": result_data
-        }), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@realtime_bp.route('/reset/<job_id>', methods=['POST'])
-def reset_realtime(job_id):
-    """실시간 처리 초기화"""
-    try:
-        job_dir = os.path.join(UPLOAD_FOLDER, job_id)
-        if not os.path.exists(job_dir):
-            return jsonify({"error": "Job not found"}), 404
-        
-        # 빈 결과로 초기화
-        empty_result = {}
-        save_result_json(job_dir, empty_result)
-        
-        return jsonify({
-            "message": "Realtime processing reset",
-            "result": empty_result
-        }), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-def find_longest_staying_slide(meta_data):
-    """메타 데이터에서 가장 오래 체류한 슬라이드 찾기"""
-    max_duration = 0
-    longest_slide = None
-    
-    # meta_data가 list인 경우와 dict인 경우 모두 처리
-    if isinstance(meta_data, list):
-        slides_data = meta_data
-    else:
-        slides_data = meta_data.get('slides', [])
-    
-    for slide_info in slides_data:
-        # start_time과 end_time을 사용해 duration 계산
-        if 'start_time' in slide_info and 'end_time' in slide_info:
-            start_time = slide_info['start_time']
-            end_time = slide_info['end_time']
-            
-            # "00:05.236" 형식을 초로 변환
-            def time_to_seconds(time_str):
-                parts = time_str.split(':')
-                minutes = int(parts[0])
-                seconds = float(parts[1])
-                return minutes * 60 + seconds
-            
-            duration = time_to_seconds(end_time) - time_to_seconds(start_time)
-        else:
-            duration = slide_info.get('duration', 0)
-        
-        if duration > max_duration:
-            max_duration = duration
-            # slide_id 또는 pageNumber 사용
-            longest_slide = slide_info.get('slide_id') or slide_info.get('pageNumber')
-    
-    return longest_slide
-
-def load_or_create_result_json(job_dir):
-    """result.json 로드하거나 새로 생성"""
-    result_path = os.path.join(job_dir, "result.json")
-    
-    if os.path.exists(result_path):
-        with open(result_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    else:
-        return {}
-
-def save_result_json(job_dir, result_data):
-    """result.json 저장"""
-    result_path = os.path.join(job_dir, "result.json")
-    with open(result_path, 'w', encoding='utf-8') as f:
-        json.dump(result_data, f, ensure_ascii=False, indent=2)
+        return jsonify({"error": f"Failed to convert PDF to images: {str(e)}"}), 500
