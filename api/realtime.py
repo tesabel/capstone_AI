@@ -124,32 +124,46 @@ def stop_realtime():
             print(f"[DEBUG] Converted {len(images)} pages from PDF")
             
             image_urls = []
+            successful_saves = 0
             
+            # 모든 이미지를 저장하고 확인
             for i, image in enumerate(images, 1):
                 # 이미지 파일명 생성 (1.png, 2.png, ...)
                 image_filename = f"{i}.png"
                 image_path = os.path.join(image_dir, image_filename)
                 
-                # 이미지를 PNG로 저장
-                image.save(image_path, 'PNG', quality=95, optimize=True)
-                print(f"[DEBUG] Saved image: {image_path}")
-                
-                # 파일이 실제로 생성되었는지 확인
-                if os.path.exists(image_path):
-                    file_size = os.path.getsize(image_path)
-                    print(f"[DEBUG] Image file exists, size: {file_size} bytes")
-                else:
-                    print(f"[ERROR] Image file not created: {image_path}")
-                
-                # 이미지 URL 생성
-                image_url = f"/file/{job_id}/image/{image_filename}"
-                image_urls.append(image_url)
+                try:
+                    # 이미지를 PNG로 저장
+                    image.save(image_path, 'PNG', quality=95, optimize=True)
+                    print(f"[DEBUG] Saved image: {image_path}")
+                    
+                    # 파일이 실제로 생성되고 크기가 0이 아닌지 확인
+                    if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+                        file_size = os.path.getsize(image_path)
+                        print(f"[DEBUG] Image file verified, size: {file_size} bytes")
+                        
+                        # 이미지 URL 생성 (성공한 경우만)
+                        image_url = f"/file/{job_id}/image/{image_filename}"
+                        image_urls.append(image_url)
+                        successful_saves += 1
+                    else:
+                        print(f"[ERROR] Image file not created or empty: {image_path}")
+                        
+                except Exception as save_error:
+                    print(f"[ERROR] Failed to save image {i}: {save_error}")
+            
+            print(f"[DEBUG] Successfully saved {successful_saves}/{len(images)} images")
+            
+            # 최소 하나 이상의 이미지가 성공적으로 저장된 경우에만 성공 응답
+            if successful_saves > 0:
+                print(f"[DEBUG] Returning {len(image_urls)} image URLs")
+                return jsonify({"image_urls": image_urls}), 200
+            else:
+                raise Exception("No images were successfully saved")
                 
         except Exception as convert_error:
             print(f"[ERROR] PDF conversion failed: {convert_error}")
             raise Exception(f"PDF to image conversion failed: {str(convert_error)}")
-        
-        return jsonify({"image_urls": image_urls}), 200
         
     except Exception as e:
         return jsonify({"error": f"Failed to convert PDF to images: {str(e)}"}), 500

@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 import jwt
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
@@ -262,6 +262,26 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
+
+# === 파일 서빙 API ===
+@app.route('/file/<path:filepath>')
+def serve_file(filepath):
+    """파일 서빙 (이미지, PDF 등)"""
+    try:
+        # file 디렉토리에서 파일 제공
+        file_path = os.path.join(UPLOAD_FOLDER, filepath)
+        
+        if not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
+        
+        # 파일의 디렉토리와 파일명 분리
+        directory = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+        
+        return send_from_directory(directory, filename)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # === API Blueprint 등록 ===
 from api.process import process_bp
