@@ -157,7 +157,18 @@ def stop_realtime():
             # 최소 하나 이상의 이미지가 성공적으로 저장된 경우에만 성공 응답
             if successful_saves > 0:
                 print(f"[DEBUG] Returning {len(image_urls)} image URLs")
-                return jsonify({"image_urls": image_urls}), 200
+                
+                # JSON 결과 파일 읽기
+                result_json = None
+                result_path = os.path.join(UPLOAD_FOLDER, job_id, "result.json")
+                if os.path.exists(result_path):
+                    with open(result_path, 'r', encoding='utf-8') as f:
+                        result_json = json.load(f)
+                
+                return jsonify({
+                    "image_urls": image_urls,
+                    "result_json": result_json
+                }), 200
             else:
                 raise Exception("No images were successfully saved")
                 
