@@ -20,6 +20,7 @@ from src.image_captioning import image_captioning, convert_pdf_to_images
 from src.realtime_convert_audio import transcribe_audio_with_timestamps
 from src.segment_splitter import segment_split
 from src.post_process import post_process
+from src.summary import create_summary
 
 # Blueprint 생성
 realtime_bp = Blueprint('realtime', __name__)
@@ -446,6 +447,79 @@ def post_process_endpoint():
             except Exception as e:
                 print(f"후처리 오류 (slide {slide_num}): {str(e)}")
                 continue
+        
+        print("후처리 완료, 요약 생성 시작...")
+        
+        # 매핑된 세그먼트들을 segment_mapping 형식으로 변환
+        mapped_segments_for_summary = {}
+        for slide_key, slide_data in result_data.items():
+            if slide_key == "slide0" or "Segments" not in slide_data:
+                continue
+                
+            mapped_segments_for_summary[slide_key] = {
+                "Segments": slide_data["Segments"]
+            }
+        
+        # 요약 생성
+        try:
+            def summary_progress_callback(current_slide, total_slides):
+                print(f"요약 생성 중: {current_slide}/{total_slides}")
+            
+            print(f"요약 생성 대상 슬라이드: {list(mapped_segments_for_summary.keys())}")
+            summary_notes = create_summary(
+                captioning_data, 
+                mapped_segments_for_summary, 
+                progress_callback=summary_progress_callback
+            )
+            print("요약 생성 완료")
+            
+            # 최종 결과 구성 (process.py 패턴 참고)
+            final_result = {}
+            for slide_key in mapped_segments_for_summary.keys():
+                if slide_key == "slide0":
+                    continue
+                    
+                slide_number = int(slide_key.replace("slide", ""))
+                if slide_number > len(captioning_data):
+                    continue
+
+                # 세그먼트 데이터
+                segments = mapped_segments_for_summary[slide_key].get("Segments", {})
+                
+                # 요약 데이터
+                summary = summary_notes.get(slide_key, {}) if summary_notes else {}
+                
+                # 최종 결과 구성
+                final_result[slide_key] = {
+                    "Concise Summary Notes": summary.get("Concise Summary Notes", ""),
+                    "Bullet Point Notes": summary.get("Bullet Point Notes", ""),
+                    "Keyword Notes": summary.get("Keyword Notes", ""),
+                    "Chart/Table Summary": summary.get("Chart/Table Summary", ""),
+                    "Segments": {}
+                }
+                
+                # 세그먼트 추가
+                for segment_key, segment_data in segments.items():
+                    final_result[slide_key]["Segments"][segment_key] = {
+                        "text": segment_data.get("text", ""),
+                        "isImportant": "false",
+                        "reason": "",
+                        "linkedConcept": "",
+                        "pageNumber": ""
+                    }
+            
+            # 기존 result_data에서 요약이 없는 슬라이드들도 유지
+            for slide_key, slide_data in result_data.items():
+                if slide_key not in final_result:
+                    final_result[slide_key] = slide_data
+            
+            # final_result로 교체
+            result_data = final_result
+            print(f"최종 result 구성 완료, 슬라이드 수: {len(result_data)}")
+            
+        except Exception as e:
+            print(f"요약 생성 오류: {str(e)}")
+            print("요약 없이 세그먼트 매핑 결과만 저장합니다")
         
         # 수정된 result.json 저장
         print(f"result.json 저장 중: {result_path}")
