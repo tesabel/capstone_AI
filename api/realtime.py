@@ -6,7 +6,7 @@
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from flask import Blueprint, request, jsonify
@@ -18,6 +18,8 @@ load_dotenv()
 # 기존 모듈 import
 from src.image_captioning import image_captioning, convert_pdf_to_images
 from src.realtime_convert_audio import transcribe_audio_with_timestamps
+from src.segment_splitter import segment_split
+from src.post_process import post_process
 
 # Blueprint 생성
 realtime_bp = Blueprint('realtime', __name__)
@@ -25,6 +27,18 @@ realtime_bp = Blueprint('realtime', __name__)
 # 업로드 디렉토리 설정
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'file')
 DEFAULT_CAPTIONING_PATH = 'data/image_captioning/image_captioning.json'
+
+# 데이터베이스 관련 변수 (process.py에서 초기화됨)
+db = None
+User = None
+ConversionHistory = None
+
+def init_realtime_db(app_db, user_model, conversion_history_model):
+    """데이터베이스 초기화"""
+    global db, User, ConversionHistory
+    db = app_db
+    User = user_model
+    ConversionHistory = conversion_history_model
 
 def generate_job_id():
     """고유한 job_id 생성"""
@@ -178,3 +192,138 @@ def stop_realtime():
         
     except Exception as e:
         return jsonify({"error": f"Failed to convert PDF to images: {str(e)}"}), 500
+
+@realtime_bp.route('/post-process', methods=['POST'])
+def post_process_endpoint():
+    """졸았던 슬라이드들에 대한 후처리 수행"""
+    try:
+        # 요청 데이터 확인
+        if not request.json:
+            return jsonify({"error": "JSON data is required"}), 400
+        
+        job_id = request.json.get('jobId')
+        sleep_slides = request.json.get('sleepSlides')
+        
+        if not job_id:
+            return jsonify({"error": "jobId is required"}), 400
+        
+        if not sleep_slides or not isinstance(sleep_slides, list):
+            return jsonify({"error": "sleepSlides must be a non-empty array"}), 400
+        
+        # job 디렉토리 확인
+        job_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        if not os.path.exists(job_dir):
+            return jsonify({"error": f"Job directory not found: {job_id}"}), 404
+        
+        # result.json 파일 확인
+        result_path = os.path.join(job_dir, "result.json")
+        if not os.path.exists(result_path):
+            return jsonify({"error": "result.json not found"}), 404
+        
+        # captioning_results.json 또는 image_captioning.json 확인
+        captioning_path = os.path.join(job_dir, "captioning_results.json")
+        if not os.path.exists(captioning_path):
+            captioning_path = os.path.join(job_dir, "image_captioning.json")
+            if not os.path.exists(captioning_path):
+                return jsonify({"error": "captioning results not found"}), 404
+        
+        # 기존 result.json 로드
+        with open(result_path, 'r', encoding='utf-8') as f:
+            result_data = json.load(f)
+        
+        # captioning 데이터 로드
+        with open(captioning_path, 'r', encoding='utf-8') as f:
+            captioning_data = json.load(f)
+        
+        # 각 sleep slide에 대해 후처리 수행
+        for slide_num in sleep_slides:
+            slide_key = f"slide{slide_num}"
+            
+            if slide_key not in result_data:
+                continue
+            
+            # 해당 슬라이드의 텍스트 추출
+            slide_text = ""
+            if "Segments" in result_data[slide_key]:
+                for segment_data in result_data[slide_key]["Segments"].values():
+                    slide_text += segment_data.get("text", "") + " "
+            
+            if not slide_text.strip():
+                continue
+            
+            # STT 형식으로 변환하여 세그먼트 분할
+            stt_data = {"text": slide_text.strip()}
+            segments = segment_split(stt_data)
+            
+            if isinstance(segments, dict) and "error" in segments:
+                print(f"세그먼트 분할 오류 (slide {slide_num}): {segments['error']}")
+                continue
+            
+            # 후처리로 세그먼트 재매핑
+            try:
+                mapped_data = post_process(
+                    image_captioning_data=captioning_data,
+                    segment_split_data=segments,
+                    centre_slide=slide_num
+                )
+                
+                # 재매핑된 세그먼트들을 result.json에 반영
+                for mapped_slide_key, mapped_slide_data in mapped_data.items():
+                    if mapped_slide_key == "slide0" or "Segments" not in mapped_slide_data:
+                        continue
+                    
+                    mapped_slide_num = int(mapped_slide_key.replace("slide", ""))
+                    
+                    # 원본 슬라이드와 비교하여 텍스트 추가 위치 결정
+                    for segment_data in mapped_slide_data["Segments"].values():
+                        segment_text = segment_data.get("text", "")
+                        
+                        if mapped_slide_num < slide_num:
+                            # 앞 슬라이드: 뒷부분에 추가
+                            if mapped_slide_key in result_data:
+                                # 기존 텍스트 뒤에 추가
+                                if "Segments" in result_data[mapped_slide_key]:
+                                    main_segment_key = f"segment{mapped_slide_num}"
+                                    if main_segment_key in result_data[mapped_slide_key]["Segments"]:
+                                        existing_text = result_data[mapped_slide_key]["Segments"][main_segment_key].get("text", "")
+                                        result_data[mapped_slide_key]["Segments"][main_segment_key]["text"] = existing_text + " " + segment_text
+                        
+                        elif mapped_slide_num > slide_num:
+                            # 뒷 슬라이드: 앞부분에 추가
+                            if mapped_slide_key in result_data:
+                                # 기존 텍스트 앞에 추가
+                                if "Segments" in result_data[mapped_slide_key]:
+                                    main_segment_key = f"segment{mapped_slide_num}"
+                                    if main_segment_key in result_data[mapped_slide_key]["Segments"]:
+                                        existing_text = result_data[mapped_slide_key]["Segments"][main_segment_key].get("text", "")
+                                        result_data[mapped_slide_key]["Segments"][main_segment_key]["text"] = segment_text + " " + existing_text
+                
+            except Exception as e:
+                print(f"후처리 오류 (slide {slide_num}): {str(e)}")
+                continue
+        
+        # 수정된 result.json 저장
+        with open(result_path, 'w', encoding='utf-8') as f:
+            json.dump(result_data, f, ensure_ascii=False, indent=2)
+        
+        # 히스토리에 저장 (process.py 로직 참고)
+        if db:
+            try:
+                # jobId로 기존 히스토리 찾기
+                history = ConversionHistory.query.filter_by(job_id=job_id).first()
+                if history:
+                    history.notes_json = result_data
+                    history.status = 'completed'
+                    db.session.commit()
+            except Exception as db_error:
+                print(f"데이터베이스 업데이트 오류: {db_error}")
+                db.session.rollback()
+        
+        return jsonify({
+            "message": "Post-processing completed successfully",
+            "processed_slides": sleep_slides,
+            "result": result_data
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Post-processing failed: {str(e)}"}), 500
