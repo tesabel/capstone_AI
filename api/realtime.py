@@ -108,7 +108,10 @@ def start_realtime(user):
                 
                 # 이미지 캡셔닝 수행
                 try:
-                    if os.getenv('SKIP_IMAGECAPTIONING', 'false').lower() == 'true':
+                    # skip_image_captioning = os.getenv('SKIP_IMAGECAPTIONING', 'false').lower() == 'true'
+                    skip_image_captioning = False
+                    print(f"skip_image_captioning: {skip_image_captioning}")    
+                    if skip_image_captioning:
                         # 기본 캡셔닝 결과 파일 사용
                         with open(DEFAULT_CAPTIONING_PATH, 'r', encoding='utf-8') as f:
                             captioning_results = json.load(f)
