@@ -330,7 +330,11 @@ def post_process_endpoint():
             
             # STT 형식으로 변환하여 세그먼트 분할
             stt_data = {"text": slide_text.strip()}
-            segments = segment_split(stt_data)
+            segments = segment_split(
+                stt_data,
+                alpha = -100,
+                seg_cnt = -1,
+                post_process = False)
             
             if isinstance(segments, dict) and "error" in segments:
                 print(f"세그먼트 분할 오류 (slide {slide_num}): {segments['error']}")
@@ -450,11 +454,22 @@ def post_process_endpoint():
         
         print("후처리 완료, 요약 생성 시작...")
         
-        # 매핑된 세그먼트들을 segment_mapping 형식으로 변환
+        # 매핑된 세그먼트들을 segment_mapping 형식으로 변환 (meta 타입 제외)
         mapped_segments_for_summary = {}
         for slide_key, slide_data in result_data.items():
             if slide_key == "slide0" or "Segments" not in slide_data:
                 continue
+            
+            # 해당 슬라이드의 type 확인
+            slide_number = int(slide_key.replace("slide", ""))
+            if slide_number <= len(captioning_data):
+                slide_caption = captioning_data[slide_number - 1]
+                slide_type = slide_caption.get("type", "")
+                
+                # meta 타입 슬라이드는 요약 생성에서 제외
+                if slide_type == "meta":
+                    print(f"{slide_key}는 meta 타입이므로 요약 생성 대상에서 제외합니다")
+                    continue
                 
             mapped_segments_for_summary[slide_key] = {
                 "Segments": slide_data["Segments"]
@@ -483,6 +498,35 @@ def post_process_endpoint():
                 if slide_number > len(captioning_data):
                     continue
 
+                # 해당 슬라이드의 캡셔닝 데이터에서 type 확인
+                slide_caption = captioning_data[slide_number - 1]
+                slide_type = slide_caption.get("type", "")
+                
+                # meta 타입 슬라이드는 요약 생성 건너뛰기
+                if slide_type == "meta":
+                    print(f"{slide_key}는 meta 타입이므로 요약 생성을 건너뜁니다")
+                    # 세그먼트만 포함하고 요약은 빈 값으로 설정
+                    segments = mapped_segments_for_summary[slide_key].get("Segments", {})
+                    final_result[slide_key] = {
+                        "Concise Summary Notes": "",
+                        "Bullet Point Notes": "",
+                        "Keyword Notes": "",
+                        "Chart/Table Summary": "",
+                        "Segments": {}
+                    }
+                    
+                    # 세그먼트 추가
+                    for segment_key, segment_data in segments.items():
+                        final_result[slide_key]["Segments"][segment_key] = {
+                            "text": segment_data.get("text", ""),
+                            "isImportant": "false",
+                            "reason": "",
+                            "linkedConcept": "",
+                            "pageNumber": ""
+                        }
+                    continue
+
+                # 일반 슬라이드의 경우 요약 생성
                 # 세그먼트 데이터
                 segments = mapped_segments_for_summary[slide_key].get("Segments", {})
                 
@@ -508,9 +552,10 @@ def post_process_endpoint():
                         "pageNumber": ""
                     }
             
-            # 기존 result_data에서 요약이 없는 슬라이드들도 유지
+            # 기존 result_data에서 요약이 없는 슬라이드들도 유지 (meta 타입 포함)
             for slide_key, slide_data in result_data.items():
                 if slide_key not in final_result:
+                    # meta 타입이거나 기타 슬라이드들은 그대로 유지
                     final_result[slide_key] = slide_data
             
             # final_result로 교체
