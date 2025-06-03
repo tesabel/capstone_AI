@@ -269,6 +269,7 @@ def post_process_endpoint():
         
         job_id = request.json.get('jobId')
         sleep_slides = request.json.get('sleepSlides')
+        print(f"sleep_slides: {sleep_slides}")
         
         if not job_id:
             return jsonify({"error": "jobId is required"}), 400
@@ -339,44 +340,131 @@ def post_process_endpoint():
                     centre_slide=slide_num
                 )
                 
-                # 재매핑된 세그먼트들을 result.json에 반영
+                print(f"매핑 결과: {mapped_data}")
+                
+                # 원본 슬라이드에 남을 세그먼트들을 수집
+                segments_to_keep_in_original = []
+                segments_to_move = []
+                
+                # 매핑 결과를 분석하여 어떤 세그먼트가 어디로 갈지 분류
                 for mapped_slide_key, mapped_slide_data in mapped_data.items():
                     if mapped_slide_key == "slide0" or "Segments" not in mapped_slide_data:
                         continue
                     
                     mapped_slide_num = int(mapped_slide_key.replace("slide", ""))
                     
-                    # 원본 슬라이드와 비교하여 텍스트 추가 위치 결정
-                    for segment_data in mapped_slide_data["Segments"].values():
+                    for segment_key, segment_data in mapped_slide_data["Segments"].items():
                         segment_text = segment_data.get("text", "")
-                        
-                        if mapped_slide_num < slide_num:
-                            # 앞 슬라이드: 뒷부분에 추가
-                            if mapped_slide_key in result_data:
-                                # 기존 텍스트 뒤에 추가
-                                if "Segments" in result_data[mapped_slide_key]:
-                                    main_segment_key = f"segment{mapped_slide_num}"
-                                    if main_segment_key in result_data[mapped_slide_key]["Segments"]:
-                                        existing_text = result_data[mapped_slide_key]["Segments"][main_segment_key].get("text", "")
-                                        result_data[mapped_slide_key]["Segments"][main_segment_key]["text"] = existing_text + " " + segment_text
-                        
-                        elif mapped_slide_num > slide_num:
-                            # 뒷 슬라이드: 앞부분에 추가
-                            if mapped_slide_key in result_data:
-                                # 기존 텍스트 앞에 추가
-                                if "Segments" in result_data[mapped_slide_key]:
-                                    main_segment_key = f"segment{mapped_slide_num}"
-                                    if main_segment_key in result_data[mapped_slide_key]["Segments"]:
-                                        existing_text = result_data[mapped_slide_key]["Segments"][main_segment_key].get("text", "")
-                                        result_data[mapped_slide_key]["Segments"][main_segment_key]["text"] = segment_text + " " + existing_text
+                        if not segment_text.strip():
+                            continue
+                            
+                        if mapped_slide_num == slide_num:
+                            # 같은 슬라이드에 남을 세그먼트
+                            segments_to_keep_in_original.append(segment_text)
+                        else:
+                            # 다른 슬라이드로 이동할 세그먼트
+                            segments_to_move.append({
+                                "text": segment_text,
+                                "target_slide": mapped_slide_num,
+                                "target_slide_key": mapped_slide_key
+                            })
+                
+                print(f"원본에 남을 세그먼트: {len(segments_to_keep_in_original)}개")
+                print(f"이동할 세그먼트: {len(segments_to_move)}개")
+                
+                # 1. 원본 슬라이드 업데이트 (남을 세그먼트들만)
+                original_slide_key = f"slide{slide_num}"
+                main_segment_key = f"segment{slide_num}"
+                
+                if original_slide_key in result_data and "Segments" in result_data[original_slide_key]:
+                    if main_segment_key in result_data[original_slide_key]["Segments"]:
+                        # 원본 슬라이드에는 남을 세그먼트들만 결합
+                        new_original_text = " ".join(segments_to_keep_in_original).strip()
+                        result_data[original_slide_key]["Segments"][main_segment_key]["text"] = new_original_text
+                        print(f"원본 슬라이드 {slide_num} 업데이트: '{new_original_text[:50]}...'")
+                
+                # 2. 이동할 세그먼트들을 대상 슬라이드에 추가
+                for move_info in segments_to_move:
+                    target_slide_key = move_info["target_slide_key"]
+                    target_slide_num = move_info["target_slide"]
+                    segment_text = move_info["text"]
+                    
+                    print(f"세그먼트를 slide{target_slide_num}로 이동: '{segment_text[:50]}...'")
+                    
+                    # 대상 슬라이드가 없으면 생성
+                    if target_slide_key not in result_data:
+                        result_data[target_slide_key] = {
+                            "Concise Summary Notes": "",
+                            "Bullet Point Notes": "",
+                            "Keyword Notes": "",
+                            "Chart/Table Summary": {},
+                            "Segments": {}
+                        }
+                    
+                    # Segments가 없으면 생성
+                    if "Segments" not in result_data[target_slide_key]:
+                        result_data[target_slide_key]["Segments"] = {}
+                    
+                    # 대상 슬라이드의 메인 세그먼트 키
+                    target_main_segment_key = f"segment{target_slide_num}"
+                    
+                    # 메인 세그먼트가 없으면 생성
+                    if target_main_segment_key not in result_data[target_slide_key]["Segments"]:
+                        result_data[target_slide_key]["Segments"][target_main_segment_key] = {
+                            "text": "",
+                            "isImportant": "false",
+                            "reason": "",
+                            "linkedConcept": "",
+                            "pageNumber": ""
+                        }
+                    
+                    # 기존 텍스트 가져오기
+                    existing_text = result_data[target_slide_key]["Segments"][target_main_segment_key]["text"]
+                    
+                    # 텍스트 추가 위치 결정
+                    if target_slide_num < slide_num:
+                        # 앞 슬라이드: 뒷부분에 추가
+                        new_text = existing_text + " " + segment_text if existing_text else segment_text
+                        print(f"앞 슬라이드에 추가: slide{target_slide_num}")
+                    elif target_slide_num > slide_num:
+                        # 뒷 슬라이드: 앞부분에 추가
+                        new_text = segment_text + " " + existing_text if existing_text else segment_text
+                        print(f"뒷 슬라이드에 추가: slide{target_slide_num}")
+                    else:
+                        # 같은 슬라이드 (이미 위에서 처리됨)
+                        continue
+                    
+                    # 텍스트 업데이트
+                    result_data[target_slide_key]["Segments"][target_main_segment_key]["text"] = new_text.strip()
+                    print(f"slide{target_slide_num} 업데이트 완료, 텍스트 길이: {len(new_text)}")
+                
+                print(f"slide {slide_num} 전체 처리 완료")
                 
             except Exception as e:
                 print(f"후처리 오류 (slide {slide_num}): {str(e)}")
                 continue
         
         # 수정된 result.json 저장
+        print(f"result.json 저장 중: {result_path}")
+        print(f"저장할 데이터 슬라이드 수: {len(result_data)}")
+        
         with open(result_path, 'w', encoding='utf-8') as f:
             json.dump(result_data, f, ensure_ascii=False, indent=2)
+        
+        # 저장 확인
+        if os.path.exists(result_path):
+            file_size = os.path.getsize(result_path)
+            print(f"result.json 저장 완료, 파일 크기: {file_size} bytes")
+        else:
+            print("result.json 저장 실패!")
+        
+        # 저장된 내용 확인
+        try:
+            with open(result_path, 'r', encoding='utf-8') as f:
+                saved_data = json.load(f)
+            print(f"저장된 데이터 슬라이드 수: {len(saved_data)}")
+        except Exception as e:
+            print(f"저장된 파일 읽기 오류: {e}")
         
         # 히스토리에 저장 (process.py 로직 참고)
         if db:
