@@ -33,6 +33,10 @@ db = None
 User = None
 ConversionHistory = None
 
+# JWT 설정
+JWT_SECRET = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+
 def init_realtime_db(app_db, user_model, conversion_history_model):
     """데이터베이스 초기화"""
     global db, User, ConversionHistory
@@ -40,13 +44,50 @@ def init_realtime_db(app_db, user_model, conversion_history_model):
     User = user_model
     ConversionHistory = conversion_history_model
 
+def verify_jwt_token(token):
+    """JWT 토큰 검증"""
+    try:
+        import jwt
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def get_current_user():
+    """현재 사용자 정보 가져오기"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    
+    token = auth_header.split(' ')[1]
+    user_id = verify_jwt_token(token)
+    if not user_id:
+        return None
+    
+    return db.session.get(User, user_id) if db else None
+
+def require_auth(f):
+    """인증 데코레이터"""
+    from functools import wraps
+    
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(user, *args, **kwargs)
+    return decorated_function
+
 def generate_job_id():
     """고유한 job_id 생성"""
     now = datetime.now()
     return now.strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
 
 @realtime_bp.route('/start-realtime', methods=['POST'])
-def start_realtime():
+@require_auth
+def start_realtime(user):
     """실시간 변환 시작"""
     try:
         # job_id 생성
@@ -57,6 +98,7 @@ def start_realtime():
         os.makedirs(job_dir, exist_ok=True)
         
         # PDF 파일 처리 (선택사항)
+        filename = "realtime_session.pdf"  # 기본값
         if 'doc_file' in request.files:
             pdf_file = request.files['doc_file']
             if pdf_file.filename:
@@ -79,6 +121,21 @@ def start_realtime():
                         json.dump(captioning_results, f, ensure_ascii=False, indent=2)
                 except Exception as e:
                     print(f"Image captioning error: {e}")
+        
+        # 변환 이력 생성 (데이터베이스에 저장)
+        if db:
+            try:
+                history = ConversionHistory(
+                    user_id=user.id,
+                    job_id=job_id,
+                    filename=filename,
+                    status='processing'
+                )
+                db.session.add(history)
+                db.session.commit()
+            except Exception as db_error:
+                print(f"데이터베이스 저장 오류: {db_error}")
+                db.session.rollback()
         
         return jsonify({"jobId": job_id}), 200
         
@@ -200,6 +257,11 @@ def post_process_endpoint():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
     
+    # POST 요청의 경우 인증 확인
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    
     try:
         # 요청 데이터 확인
         if not request.json:
@@ -213,6 +275,12 @@ def post_process_endpoint():
         
         if not sleep_slides or not isinstance(sleep_slides, list):
             return jsonify({"error": "sleepSlides must be a non-empty array"}), 400
+        
+        # 권한 확인 - 해당 job이 현재 사용자의 것인지 확인
+        if db:
+            history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+            if not history:
+                return jsonify({"error": "Job not found or access denied"}), 404
         
         # job 디렉토리 확인
         job_dir = os.path.join(UPLOAD_FOLDER, job_id)
@@ -313,12 +381,15 @@ def post_process_endpoint():
         # 히스토리에 저장 (process.py 로직 참고)
         if db:
             try:
-                # jobId로 기존 히스토리 찾기
-                history = ConversionHistory.query.filter_by(job_id=job_id).first()
+                # 현재 사용자의 히스토리 업데이트
+                history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
                 if history:
                     history.notes_json = result_data
                     history.status = 'completed'
                     db.session.commit()
+                    print(f"히스토리 업데이트 완료: job_id={job_id}, user_id={user.id}")
+                else:
+                    print(f"히스토리를 찾을 수 없음: job_id={job_id}, user_id={user.id}")
             except Exception as db_error:
                 print(f"데이터베이스 업데이트 오류: {db_error}")
                 db.session.rollback()
