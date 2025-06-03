@@ -193,9 +193,13 @@ def stop_realtime():
     except Exception as e:
         return jsonify({"error": f"Failed to convert PDF to images: {str(e)}"}), 500
 
-@realtime_bp.route('/post-process', methods=['POST'])
+@realtime_bp.route('/post-process', methods=['POST', 'OPTIONS'])
 def post_process_endpoint():
     """졸았던 슬라이드들에 대한 후처리 수행"""
+    # OPTIONS 요청 처리 (CORS preflight)
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     try:
         # 요청 데이터 확인
         if not request.json:
