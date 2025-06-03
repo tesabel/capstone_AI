@@ -493,3 +493,177 @@ def post_process_endpoint():
         
     except Exception as e:
         return jsonify({"error": f"Post-processing failed: {str(e)}"}), 500
+
+@realtime_bp.route('/move-segment', methods=['POST', 'OPTIONS'])
+def move_segment_endpoint():
+    """
+    특정 텍스트 세그먼트를 다른 슬라이드로 이동하거나 삭제하는 API
+    
+    동작 설명:
+    - 슬라이드 간 세그먼트를 '이동'하는 기능
+    - 세그먼트를 새로 추가하지 않고, 기존 세그먼트의 텍스트 내부에 덧붙이는 방식으로 처리
+    - 슬라이드당 세그먼트가 하나라는 구조를 가정하고 있음 (segmentN)
+    
+    유의사항:
+    - 이동 대상 슬라이드가 현재보다 앞이면 → 타겟 슬라이드의 가장 마지막 세그먼트의 맨 뒤에 텍스트를 추가
+    - 이동 대상 슬라이드가 현재보다 뒤이면 → 타겟 슬라이드의 가장 첫 세그먼트의 맨 앞에 텍스트를 삽입
+    - 삭제 요청(targetSlide == 0)일 경우 → 단순히 시작 슬라이드에서 해당 텍스트만 제거하고 종료
+    """
+    # OPTIONS 요청 처리 (CORS preflight)
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
+    # POST 요청의 경우 인증 확인
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    try:
+        # 요청 데이터 확인
+        if not request.json:
+            return jsonify({"error": "JSON data is required"}), 400
+        
+        job_id = request.json.get('jobId')
+        start_slide = request.json.get('startSlide')
+        target_slide = request.json.get('targetSlide')
+        text_to_move = request.json.get('text')
+        
+        print(f"move-segment 요청: jobId={job_id}, startSlide={start_slide}, targetSlide={target_slide}")
+        print(f"이동할 텍스트: '{text_to_move[:50]}...' (길이: {len(text_to_move)})")
+        
+        # 필수 파라미터 확인
+        if not all([job_id, start_slide is not None, target_slide is not None, text_to_move]):
+            return jsonify({"error": "jobId, startSlide, targetSlide, text are required"}), 400
+        
+        # 권한 확인 - 해당 job이 현재 사용자의 것인지 확인
+        if db:
+            history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+            if not history:
+                return jsonify({"error": "Job not found or access denied"}), 404
+        
+        # job 디렉토리 확인
+        job_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        if not os.path.exists(job_dir):
+            return jsonify({"error": f"Job directory not found: {job_id}"}), 404
+        
+        # result.json 파일 확인
+        result_path = os.path.join(job_dir, "result.json")
+        if not os.path.exists(result_path):
+            return jsonify({"error": "result.json not found"}), 404
+        
+        # 기존 result.json 로드
+        with open(result_path, 'r', encoding='utf-8') as f:
+            result_data = json.load(f)
+        
+        # 시작 슬라이드 키와 세그먼트 키 생성
+        start_slide_key = f"slide{start_slide}"
+        start_segment_key = f"segment{start_slide}"
+        
+        # 시작 슬라이드 확인
+        if start_slide_key not in result_data:
+            return jsonify({"error": f"Start slide {start_slide} not found"}), 404
+        
+        if "Segments" not in result_data[start_slide_key] or start_segment_key not in result_data[start_slide_key]["Segments"]:
+            return jsonify({"error": f"Segment not found in slide {start_slide}"}), 404
+        
+        # 시작 슬라이드의 현재 텍스트
+        current_text = result_data[start_slide_key]["Segments"][start_segment_key]["text"]
+        
+        # 이동할 텍스트가 실제로 포함되어 있는지 확인
+        if text_to_move not in current_text:
+            return jsonify({"error": "Text to move not found in the source segment"}), 404
+        
+        # 시작 슬라이드에서 해당 텍스트 제거
+        updated_start_text = current_text.replace(text_to_move, "").strip()
+        # 연속된 공백 제거
+        updated_start_text = " ".join(updated_start_text.split())
+        
+        result_data[start_slide_key]["Segments"][start_segment_key]["text"] = updated_start_text
+        print(f"시작 슬라이드 {start_slide}에서 텍스트 제거 완료")
+        
+        # 삭제 요청인 경우 (targetSlide == 0)
+        if target_slide == 0:
+            print("삭제 요청 - 텍스트만 제거하고 종료")
+        else:
+            # 이동 요청인 경우
+            target_slide_key = f"slide{target_slide}"
+            target_segment_key = f"segment{target_slide}"
+            
+            # 타겟 슬라이드가 없으면 생성
+            if target_slide_key not in result_data:
+                result_data[target_slide_key] = {
+                    "Concise Summary Notes": "",
+                    "Bullet Point Notes": "",
+                    "Keyword Notes": "",
+                    "Chart/Table Summary": {},
+                    "Segments": {}
+                }
+            
+            # Segments가 없으면 생성
+            if "Segments" not in result_data[target_slide_key]:
+                result_data[target_slide_key]["Segments"] = {}
+            
+            # 타겟 세그먼트가 없으면 생성
+            if target_segment_key not in result_data[target_slide_key]["Segments"]:
+                result_data[target_slide_key]["Segments"][target_segment_key] = {
+                    "text": "",
+                    "isImportant": "false",
+                    "reason": "",
+                    "linkedConcept": "",
+                    "pageNumber": ""
+                }
+            
+            # 타겟 슬라이드의 현재 텍스트
+            target_current_text = result_data[target_slide_key]["Segments"][target_segment_key]["text"]
+            
+            # 텍스트 추가 위치 결정
+            if target_slide < start_slide:
+                # 앞 슬라이드: 맨 뒤에 추가
+                new_text = target_current_text + " " + text_to_move if target_current_text else text_to_move
+                print(f"앞 슬라이드 {target_slide}의 뒤에 텍스트 추가")
+            else:
+                # 뒷 슬라이드: 맨 앞에 추가
+                new_text = text_to_move + " " + target_current_text if target_current_text else text_to_move
+                print(f"뒷 슬라이드 {target_slide}의 앞에 텍스트 추가")
+            
+            # 타겟 슬라이드 업데이트
+            result_data[target_slide_key]["Segments"][target_segment_key]["text"] = new_text.strip()
+            print(f"타겟 슬라이드 {target_slide} 업데이트 완료")
+        
+        # 수정된 result.json 저장
+        print(f"result.json 저장 중: {result_path}")
+        with open(result_path, 'w', encoding='utf-8') as f:
+            json.dump(result_data, f, ensure_ascii=False, indent=2)
+        
+        # 저장 확인
+        if os.path.exists(result_path):
+            file_size = os.path.getsize(result_path)
+            print(f"result.json 저장 완료, 파일 크기: {file_size} bytes")
+        
+        # 히스토리에 저장
+        if db:
+            try:
+                # 현재 사용자의 히스토리 업데이트
+                history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+                if history:
+                    history.notes_json = result_data
+                    history.status = 'completed'
+                    db.session.commit()
+                    print(f"히스토리 업데이트 완료: job_id={job_id}, user_id={user.id}")
+                else:
+                    print(f"히스토리를 찾을 수 없음: job_id={job_id}, user_id={user.id}")
+            except Exception as db_error:
+                print(f"데이터베이스 업데이트 오류: {db_error}")
+                db.session.rollback()
+        
+        action = "deleted" if target_slide == 0 else "moved"
+        return jsonify({
+            "message": f"Segment {action} successfully",
+            "startSlide": start_slide,
+            "targetSlide": target_slide,
+            "action": action,
+            "result": result_data
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Move segment failed: {str(e)}"}), 500
