@@ -811,3 +811,53 @@ def get_lecture_flow():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@realtime_bp.route('/find-slide-by-keyword', methods=['POST'])
+def find_slide_by_keyword():
+    """
+    사용자가 입력한 키워드가 포함된 슬라이드 번호를 반환하는 API
+    
+    요청 JSON
+    {
+        "jobId": "20250603_013045_abc12345",
+        "keyword": "프로세스"
+    }
+
+    응답 JSON
+    {
+        "matchedSlides": [2, 4, 7]
+    }
+    """
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json()
+        job_id = data.get("jobId")
+        keyword = data.get("keyword")
+
+        if not job_id or not keyword:
+            return jsonify({"error": "jobId and keyword are required"}), 400
+
+        result_path = os.path.join(UPLOAD_FOLDER, job_id, "result.json")
+        if not os.path.exists(result_path):
+            return jsonify({"error": "result.json not found"}), 404
+
+        with open(result_path, "r", encoding="utf-8") as f:
+            result_data = json.load(f)
+
+        matched_slides = []
+        for slide_key in sorted(result_data.keys(), key=lambda x: int(x.replace("slide", ""))):
+            segments = result_data[slide_key].get("Segments", {})
+            for seg in segments.values():
+                text = seg.get("text", "")
+                if keyword.lower() in text.lower():
+                    slide_num = int(slide_key.replace("slide", ""))
+                    matched_slides.append(slide_num)
+                    break  # 하나라도 매칭되면 그 슬라이드는 OK
+
+        return jsonify({"matchedSlides": matched_slides}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
