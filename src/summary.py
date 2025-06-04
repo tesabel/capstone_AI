@@ -235,6 +235,72 @@ def create_summary(
     
     return summaries
 
+def generate_lecture_flow(merged_text: str) -> Dict[str, Any]:
+    """
+    해당 강의의 전체적인 흐름을 반환하는 함수
+
+    예시 결과과)
+    {
+        "lecture_flow": "운영체제의 정의 → 하드웨어와의 인터페이스 → 프로세스와 스레드 → CPU 스케줄링 → 메모리 관리 → 파일 시스템 → 보안 개념 → 수업 종료"
+    }
+    """
+
+    prompt = f"""
+    ### 전체 강의 흐름 분석 요청
+
+    다음은 강의의 모든 슬라이드에서 발화된 설명 텍스트입니다. 이 텍스트를 기반으로 강의 전체가 어떤 흐름으로 진행되었는지 간결하게 설명해주세요.
+
+    ---
+    {merged_text}
+    ---
+
+    ## 작성 지침
+    1. 수업 시간에 **어떤 주제가 어떤 순서로 등장했는지** 핵심 흐름만 뽑아주세요.
+    2. 아래와 같은 **화살표 포맷**으로 작성하세요:
+    핵심 주제1 → 핵심 주제2 → 핵심 주제3 → ... → 핵심 정리
+    3. 각 항목은 **짧고 핵심적**이어야 하며, 총 5~8개 정도로 구성합니다. merged_text의 길이가 짧다면 총 3~5개 정도로 구성.
+    4. 글머리표 없이 한 줄로 작성하고, 마지막에는 "→ 수업 종료"로 끝맺습니다.
+    5. 반드시 **한국어로 작성**하세요.
+    """
+
+    print("\n[DEBUG] ----- LECTURE FLOW PROMPT BEGIN -----")
+    print(f"[DEBUG] 병합된 세그먼트 길이: {len(merged_text)} 문자")
+    print("[DEBUG] ----- PROMPT END -----\n")
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert in summarizing full lecture flows."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        functions=[
+            {
+                "name": "return_lecture_flow",
+                "description": "Summarizes the entire lecture's flow.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "lecture_flow": {
+                            "type": "string",
+                            "description": "Concise paragraph about how the lecture was logically structured and progressed"
+                        }
+                    },
+                    "required": ["lecture_flow"]
+                }
+            }
+        ],
+        function_call={"name": "return_lecture_flow"}
+    )
+
+    return json.loads(response.choices[0].message.function_call.arguments)
+
+
 if __name__ == "__main__":
     import sys
     

@@ -20,7 +20,7 @@ from src.image_captioning import image_captioning, convert_pdf_to_images
 from src.realtime_convert_audio import transcribe_audio_with_timestamps
 from src.segment_splitter import segment_split
 from src.post_process import post_process
-from src.summary import create_summary
+from src.summary import create_summary, generate_lecture_flow
 
 # Blueprint 생성
 realtime_bp = Blueprint('realtime', __name__)
@@ -786,3 +786,48 @@ def move_segment_endpoint():
         
     except Exception as e:
         return jsonify({"error": f"Move segment failed: {str(e)}"}), 500
+    
+
+
+@realtime_bp.route('/get-lecture-flow', methods=['POST'])
+def get_lecture_flow():
+    """
+    강의의 전체적인 흐름을 반환하는 api 
+    """
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json()
+        job_id = data.get("jobId")
+        if not job_id:
+            return jsonify({"error": "jobId is required"}), 400
+
+        result_path = os.path.join(UPLOAD_FOLDER, job_id, "result.json")
+        if not os.path.exists(result_path):
+            return jsonify({"error": "result.json not found"}), 404
+
+        with open(result_path, "r", encoding="utf-8") as f:
+            result_data = json.load(f)
+
+        # 슬라이드별 세그먼트 텍스트 병합
+        all_text = []
+        for slide in sorted(result_data.keys(), key=lambda x: int(x.replace("slide", ""))):
+            segments = result_data[slide].get("Segments", {})
+            for seg_id in sorted(segments.keys(), key=lambda x: int(x.replace("segment", ""))):
+                text = segments[seg_id].get("text", "")
+                if text:
+                    all_text.append(text.strip())
+
+        merged_text = "\n".join(all_text)
+
+        # 프롬프트 생성 및 GPT 함수 호출
+        
+        response = generate_lecture_flow(merged_text)
+
+        # GPT 함수 응답 예: {"lecture_flow": "수업은 ..."}
+        return jsonify({"lecture_flow": response["lecture_flow"]}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
