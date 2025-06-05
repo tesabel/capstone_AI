@@ -165,13 +165,15 @@ General rules (**FOLLOW EXACTLY**)
 
 def create_summary(
     image_captioning_data: Dict[str, Any],
-    segment_mapping_data: Dict[str, Any]
+    segment_mapping_data: Dict[str, Any],
+    progress_callback=None
 ) -> Dict[str, Any]:
     """모든 슬라이드에 대한 요약을 생성합니다.
     
     Args:
         image_captioning_data: 이미지 캡셔닝 결과 JSON 데이터
         segment_mapping_data: 세그먼트 매핑 결과 JSON 데이터
+        progress_callback: 진행률 업데이트를 위한 콜백 함수
         
     Returns:
         생성된 요약 데이터
@@ -179,22 +181,31 @@ def create_summary(
     # 결과 저장할 딕셔너리
     summaries = {}
 
-    # 각 슬라이드에 대해 요약 생성
-    for slide_key, slide_data in segment_mapping_data.items():
+    # 처리할 슬라이드 목록 생성
+    slides_to_process = []
+    for slide_key in segment_mapping_data.keys():
         if slide_key == "slide0":
-            continue  # 매핑되지 않은 세그먼트는 요약하지 않음
+            continue
             
         slide_number = int(slide_key.replace("slide", ""))
-        
-        # 슬라이드 번호가 캡셔닝 데이터 범위를 벗어나면 건너뛰기
         if slide_number > len(image_captioning_data):
             continue
+            
+        slides_to_process.append((slide_key, slide_number))
 
+    total_slides = len(slides_to_process)
+    
+    # 각 슬라이드에 대해 요약 생성
+    for i, (slide_key, slide_number) in enumerate(slides_to_process, 1):
+        # 진행률 콜백 호출
+        if progress_callback:
+            progress_callback(i, total_slides)
+            
         # 해당 슬라이드의 캡셔닝 데이터
         slide_caption = image_captioning_data[slide_number - 1]
 
         # 세그먼트 텍스트 병합
-        segments = slide_data.get("Segments", {})
+        segments = segment_mapping_data[slide_key].get("Segments", {})
         merged_segments = "\n".join(
             f"Segment {seg_id}: {seg_data['text']}"
             for seg_id, seg_data in segments.items()

@@ -19,3 +19,8 @@ __pycache__/
 data/
 
 file/
+
+# Google Cloud Service Account Credentials
+*credentials*.json
+*service-account*.json
+capstone2025-457105-5ee4bf3f0d1e.json
