@@ -110,7 +110,7 @@ def start_realtime(user):
                 # 이미지 캡셔닝 수행
                 try:
                     # skip_image_captioning = os.getenv('SKIP_IMAGECAPTIONING', 'false').lower() == 'true'
-                    skip_image_captioning = False
+                    skip_image_captioning = True
                     print(f"skip_image_captioning: {skip_image_captioning}")    
                     if skip_image_captioning:
                         # 기본 캡셔닝 결과 파일 사용
@@ -391,13 +391,20 @@ def post_process_endpoint():
                         result_data[original_slide_key]["Segments"][main_segment_key]["text"] = new_original_text
                         print(f"원본 슬라이드 {slide_num} 업데이트: '{new_original_text[:50]}...'")
                 
-                # 2. 이동할 세그먼트들을 대상 슬라이드에 추가
+                # 2. 이동할 세그먼트들을 대상 슬라이드별로 그룹화
+                segments_by_target = {}
                 for move_info in segments_to_move:
-                    target_slide_key = move_info["target_slide_key"]
                     target_slide_num = move_info["target_slide"]
-                    segment_text = move_info["text"]
+                    if target_slide_num not in segments_by_target:
+                        segments_by_target[target_slide_num] = []
+                    segments_by_target[target_slide_num].append(move_info)
+                
+                # 3. 각 대상 슬라이드별로 세그먼트들을 올바른 순서로 추가
+                for target_slide_num, target_segments in segments_by_target.items():
+                    target_slide_key = f"slide{target_slide_num}"
+                    target_main_segment_key = f"segment{target_slide_num}"
                     
-                    print(f"세그먼트를 slide{target_slide_num}로 이동: '{segment_text[:50]}...'")
+                    print(f"slide{target_slide_num}로 이동할 세그먼트 {len(target_segments)}개 처리")
                     
                     # 대상 슬라이드가 없으면 생성
                     if target_slide_key not in result_data:
@@ -413,9 +420,6 @@ def post_process_endpoint():
                     if "Segments" not in result_data[target_slide_key]:
                         result_data[target_slide_key]["Segments"] = {}
                     
-                    # 대상 슬라이드의 메인 세그먼트 키
-                    target_main_segment_key = f"segment{target_slide_num}"
-                    
                     # 메인 세그먼트가 없으면 생성
                     if target_main_segment_key not in result_data[target_slide_key]["Segments"]:
                         result_data[target_slide_key]["Segments"][target_main_segment_key] = {
@@ -429,22 +433,26 @@ def post_process_endpoint():
                     # 기존 텍스트 가져오기
                     existing_text = result_data[target_slide_key]["Segments"][target_main_segment_key]["text"]
                     
+                    # 이동할 세그먼트들의 텍스트를 순서대로 결합
+                    segments_texts = [seg["text"] for seg in target_segments]
+                    combined_segments_text = " ".join(segments_texts)
+                    
                     # 텍스트 추가 위치 결정
                     if target_slide_num < slide_num:
-                        # 앞 슬라이드: 뒷부분에 추가
-                        new_text = existing_text + " " + segment_text if existing_text else segment_text
-                        print(f"앞 슬라이드에 추가: slide{target_slide_num}")
+                        # 앞 슬라이드: 뒷부분에 추가 (순서 유지)
+                        new_text = existing_text + " " + combined_segments_text if existing_text else combined_segments_text
+                        print(f"앞 슬라이드 slide{target_slide_num}에 순서 유지하여 추가")
                     elif target_slide_num > slide_num:
-                        # 뒷 슬라이드: 앞부분에 추가
-                        new_text = segment_text + " " + existing_text if existing_text else segment_text
-                        print(f"뒷 슬라이드에 추가: slide{target_slide_num}")
+                        # 뒷 슬라이드: 앞부분에 추가 (순서 유지)
+                        new_text = combined_segments_text + " " + existing_text if existing_text else combined_segments_text
+                        print(f"뒷 슬라이드 slide{target_slide_num}에 순서 유지하여 추가")
                     else:
                         # 같은 슬라이드 (이미 위에서 처리됨)
                         continue
                     
                     # 텍스트 업데이트
                     result_data[target_slide_key]["Segments"][target_main_segment_key]["text"] = new_text.strip()
-                    print(f"slide{target_slide_num} 업데이트 완료, 텍스트 길이: {len(new_text)}")
+                    print(f"slide{target_slide_num} 업데이트 완료, 추가된 세그먼트: {len(target_segments)}개, 최종 텍스트 길이: {len(new_text)}")
                 
                 print(f"slide {slide_num} 전체 처리 완료")
                 
