@@ -74,7 +74,7 @@ class STTSession:
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=16000, # 샘플 레이트 16kHz (추천 값)
                 language_code="ko-KR",
-                enable_automatic_punctuation=True, # 자동 구두점 사용
+                enable_automatic_punctuation=False, # 자동 구두점 사용
             )
             
             logger.info("Google Cloud Speech-to-Text 설정 완료")
