@@ -265,7 +265,7 @@ def process_files_background(job_id, audio_path, doc_path, user_id=None, skip_tr
             
             # 1. STT 처리 (0-30%)
             if not skip_transcription:
-                update_job_status(job_id, 5, "음성 파일 준비 중...")
+                update_job_status(job_id, 5, "강의 스크립트 생성 중...")
                 stt_result = transcribe_audio(audio_path)
                 update_job_status(job_id, 15, "음성 변환 완료, 텍스트 세그먼트 분리 중...")
                 
@@ -275,7 +275,7 @@ def process_files_background(job_id, audio_path, doc_path, user_id=None, skip_tr
                 update_job_status(job_id, 30, f"세그먼트 분리 완료 (총 {total_segments}개 세그먼트)")
             else:
                 # STT 건너뛰기
-                update_job_status(job_id, 30, "STT 건너뛰기, 이미지 분석 시작...")
+                update_job_status(job_id, 30, "강의 듣는 중")
                 # .env에서 기본 STT 결과 경로 가져오기
                 stt_result_path = os.getenv('STT_RESULT_PATH', "data/stt_result/stt_result.json")
                 if os.path.exists(stt_result_path):

@@ -10,7 +10,7 @@ import shutil
 
 class Config:
     """설정 클래스"""
-    SKIP_IMAGE_CAPTIONING = True
+    SKIP_IMAGE_CAPTIONING = False
     DEFAULT_CAPTIONING_PATH = 'data/image_captioning/image_captioning.json'
 
 app = Flask(__name__)

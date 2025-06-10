@@ -102,5 +102,5 @@ def transcribe_audio(audio_file_path: str = "assets/os_35.m4a"):
         return None
 
 if __name__ == "__main__":
-    audio_path = "assets/audio.wav"
+    audio_path = "assets/os_demo.m4a"
     transcribe_audio(audio_path)
