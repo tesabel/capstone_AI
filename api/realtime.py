@@ -110,7 +110,7 @@ def start_realtime(user):
                 # 이미지 캡셔닝 수행
                 try:
                     # skip_image_captioning = os.getenv('SKIP_IMAGECAPTIONING', 'false').lower() == 'true'
-                    skip_image_captioning = True
+                    skip_image_captioning = filename == 'cry_demo.pdf'
                     print(f"skip_image_captioning: {skip_image_captioning}")    
                     if skip_image_captioning:
                         # 기본 캡셔닝 결과 파일 사용
@@ -312,8 +312,41 @@ def post_process_endpoint():
         with open(captioning_path, 'r', encoding='utf-8') as f:
             captioning_data = json.load(f)
         
-        # 각 sleep slide에 대해 후처리 수행
+        # 세그먼트가 없는 슬라이드 필터링
+        valid_sleep_slides = []
         for slide_num in sleep_slides:
+            slide_key = f"slide{slide_num}"
+            
+            # 슬라이드가 result_data에 없거나 Segments가 없는 경우 건너뛰기
+            if slide_key not in result_data or "Segments" not in result_data[slide_key]:
+                print(f"슬라이드 {slide_num}에 세그먼트가 없어 처리에서 제외됩니다.")
+                continue
+                
+            # 해당 슬라이드의 텍스트 추출
+            slide_text = ""
+            if "Segments" in result_data[slide_key]:
+                for segment_data in result_data[slide_key]["Segments"].values():
+                    slide_text += segment_data.get("text", "") + " "
+            
+            # 텍스트가 비어있는 경우 건너뛰기
+            if not slide_text.strip():
+                print(f"슬라이드 {slide_num}의 텍스트가 비어있어 처리에서 제외됩니다.")
+                continue
+                
+            valid_sleep_slides.append(slide_num)
+        
+        # 유효한 슬라이드가 없는 경우
+        if not valid_sleep_slides:
+            return jsonify({
+                "message": "No valid slides to process",
+                "processed_slides": [],
+                "result": result_data
+            }), 200
+            
+        print(f"처리할 유효한 슬라이드: {valid_sleep_slides}")
+        
+        # 각 sleep slide에 대해 후처리 수행
+        for slide_num in valid_sleep_slides:
             slide_key = f"slide{slide_num}"
             
             if slide_key not in result_data:
@@ -614,7 +647,7 @@ def post_process_endpoint():
         
         return jsonify({
             "message": "Post-processing completed successfully",
-            "processed_slides": sleep_slides,
+            "processed_slides": valid_sleep_slides,
             "result": result_data
         }), 200
         
