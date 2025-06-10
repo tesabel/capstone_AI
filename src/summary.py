@@ -79,10 +79,6 @@ Detail: {slide_data['detail']}
    • About 10 entries in the form **Keyword** – (explanation).  
    • End each keyword entry with (\n).
 
-4. chart_summary  
-   • Provide a table / step list if meaningful; otherwise write "Omitted".  
-
-
 ## Example
 concise_summary
 Operating systems manage **resources**, provide **abstraction**, and ensure **security**. They coordinate **processes** and **threads**, ...
@@ -95,13 +91,6 @@ bullet_points
 keywords  
 **Process** – (An executing program instance)
 **Thread** – (Lightweight unit of CPU scheduling)
-...
-
-chart_summary  
-| Component | Role |  
-|-----------|-------------------------------|  
-| CPU       | Executes instructions         |  
-| Memory    | Stores code & data            |  
 ...
 
 General rules (**FOLLOW EXACTLY**)
@@ -145,16 +134,8 @@ General rules (**FOLLOW EXACTLY**)
                             "type": "string",
                             "description": "Important keywords with explanations"
                         },
-                        "chart_summary": {
-                            "type": "object",
-                            "properties": {
-                                "주제": {"type": "string"},
-                                "부주제": {"type": "string"}
-                            },
-                            "required": ["주제", "부주제"]
-                        }
                     },
-                    "required": ["concise_summary", "bullet_points", "keywords", "chart_summary"]
+                    "required": ["concise_summary", "bullet_points", "keywords"]
                 }
             }
         ],
@@ -219,7 +200,7 @@ def create_summary(
             "Concise Summary Notes": f"🧠Concise Summary Notes\n{summary['concise_summary']}",
             "Bullet Point Notes": f"✅Bullet Point Notes\n{summary['bullet_points']}",
             "Keyword Notes": f"🔑Keyword Notes\n{summary['keywords']}",
-            "Chart/Table Summary": f"📊Chart/Table Summary\n{summary['chart_summary']}"
+            "Chart/Table Summary": "Ommitted"
         }
 
     # 결과 저장
