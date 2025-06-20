@@ -109,17 +109,7 @@ def start_realtime(user):
                 
                 # 이미지 캡셔닝 수행
                 try:
-                    # skip_image_captioning = os.getenv('SKIP_IMAGECAPTIONING', 'false').lower() == 'true'
-                    skip_image_captioning = filename == 'cry_demo.pdf'
-                    print(f"skip_image_captioning: {skip_image_captioning}")    
-                    if skip_image_captioning:
-                        # 기본 캡셔닝 결과 파일 사용
-                        with open(DEFAULT_CAPTIONING_PATH, 'r', encoding='utf-8') as f:
-                            captioning_results = json.load(f)
-                    else:
-                        # 실제 이미지 캡셔닝 수행
-                        captioning_results = image_captioning(pdf_path)
-                    
+                    captioning_results = image_captioning(pdf_path)
                     result_path = os.path.join(job_dir, "captioning_results.json")
                     with open(result_path, 'w', encoding='utf-8') as f:
                         json.dump(captioning_results, f, ensure_ascii=False, indent=2)
@@ -278,8 +268,8 @@ def post_process_endpoint():
         if not job_id:
             return jsonify({"error": "jobId is required"}), 400
         
-        if not sleep_slides or not isinstance(sleep_slides, list):
-            return jsonify({"error": "sleepSlides must be a non-empty array"}), 400
+        if not isinstance(sleep_slides, list):
+            return jsonify({"error": "sleepSlides must be an array"}), 400
         
         # 권한 확인 - 해당 job이 현재 사용자의 것인지 확인
         if db:
@@ -335,10 +325,142 @@ def post_process_endpoint():
                 
             valid_sleep_slides.append(slide_num)
         
-        # 유효한 슬라이드가 없는 경우
+        # 유효한 슬라이드가 없는 경우 - 요약만 생성
         if not valid_sleep_slides:
+            print("유효한 슬라이드가 없어 요약만 생성합니다.")
+            
+            # 기존 result_data를 그대로 사용하여 요약 생성
+            mapped_segments_for_summary = {}
+            for slide_key, slide_data in result_data.items():
+                if slide_key == "slide0" or "Segments" not in slide_data:
+                    continue
+                
+                # 해당 슬라이드의 type 확인
+                slide_number = int(slide_key.replace("slide", ""))
+                if slide_number <= len(captioning_data):
+                    slide_caption = captioning_data[slide_number - 1]
+                    slide_type = slide_caption.get("type", "")
+                    
+                    # meta 타입 슬라이드는 요약 생성에서 제외
+                    if slide_type == "meta":
+                        print(f"{slide_key}는 meta 타입이므로 요약 생성 대상에서 제외합니다")
+                        continue
+                    
+                mapped_segments_for_summary[slide_key] = {
+                    "Segments": slide_data["Segments"]
+                }
+            
+            # 요약 생성
+            try:
+                def summary_progress_callback(current_slide, total_slides):
+                    print(f"요약 생성 중: {current_slide}/{total_slides}")
+                
+                print(f"요약 생성 대상 슬라이드: {list(mapped_segments_for_summary.keys())}")
+                summary_notes = create_summary(
+                    captioning_data, 
+                    mapped_segments_for_summary, 
+                    progress_callback=summary_progress_callback
+                )
+                print("요약 생성 완료")
+                
+                # 최종 결과 구성
+                final_result = {}
+                for slide_key in mapped_segments_for_summary.keys():
+                    if slide_key == "slide0":
+                        continue
+                        
+                    slide_number = int(slide_key.replace("slide", ""))
+                    if slide_number > len(captioning_data):
+                        continue
+
+                    # 해당 슬라이드의 캡셔닝 데이터에서 type 확인
+                    slide_caption = captioning_data[slide_number - 1]
+                    slide_type = slide_caption.get("type", "")
+                    
+                    # meta 타입 슬라이드는 요약 생성 건너뛰기
+                    if slide_type == "meta":
+                        print(f"{slide_key}는 meta 타입이므로 요약 생성을 건너뜁니다")
+                        # 세그먼트만 포함하고 요약은 빈 값으로 설정
+                        segments = mapped_segments_for_summary[slide_key].get("Segments", {})
+                        final_result[slide_key] = {
+                            "Concise Summary Notes": "",
+                            "Bullet Point Notes": "",
+                            "Keyword Notes": "",
+                            "Chart/Table Summary": "",
+                            "Segments": {}
+                        }
+                        
+                        # 세그먼트 추가
+                        for segment_key, segment_data in segments.items():
+                            final_result[slide_key]["Segments"][segment_key] = {
+                                "text": segment_data.get("text", ""),
+                                "isImportant": "false",
+                                "reason": "",
+                                "linkedConcept": "",
+                                "pageNumber": ""
+                            }
+                        continue
+
+                    # 일반 슬라이드의 경우 요약 생성
+                    # 세그먼트 데이터
+                    segments = mapped_segments_for_summary[slide_key].get("Segments", {})
+                    
+                    # 요약 데이터
+                    summary = summary_notes.get(slide_key, {}) if summary_notes else {}
+                    
+                    # 최종 결과 구성
+                    final_result[slide_key] = {
+                        "Concise Summary Notes": summary.get("Concise Summary Notes", ""),
+                        "Bullet Point Notes": summary.get("Bullet Point Notes", ""),
+                        "Keyword Notes": summary.get("Keyword Notes", ""),
+                        "Chart/Table Summary": summary.get("Chart/Table Summary", ""),
+                        "Segments": {}
+                    }
+                    
+                    # 세그먼트 추가
+                    for segment_key, segment_data in segments.items():
+                        final_result[slide_key]["Segments"][segment_key] = {
+                            "text": segment_data.get("text", ""),
+                            "isImportant": "false",
+                            "reason": "",
+                            "linkedConcept": "",
+                            "pageNumber": ""
+                        }
+                
+                # 기존 result_data에서 요약이 없는 슬라이드들도 유지 (meta 타입 포함)
+                for slide_key, slide_data in result_data.items():
+                    if slide_key not in final_result:
+                        # meta 타입이거나 기타 슬라이드들은 그대로 유지
+                        final_result[slide_key] = slide_data
+                
+                # final_result로 교체
+                result_data = final_result
+                print(f"최종 result 구성 완료, 슬라이드 수: {len(result_data)}")
+                
+                # 수정된 result.json 저장
+                print(f"result.json 저장 중: {result_path}")
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_data, f, ensure_ascii=False, indent=2)
+                
+                # 히스토리에 저장
+                if db:
+                    try:
+                        history = ConversionHistory.query.filter_by(job_id=job_id, user_id=user.id).first()
+                        if history:
+                            history.notes_json = result_data
+                            history.status = 'completed'
+                            db.session.commit()
+                            print(f"히스토리 업데이트 완료: job_id={job_id}, user_id={user.id}")
+                    except Exception as db_error:
+                        print(f"데이터베이스 업데이트 오류: {db_error}")
+                        db.session.rollback()
+                
+            except Exception as e:
+                print(f"요약 생성 오류: {str(e)}")
+                print("요약 없이 기존 데이터를 그대로 반환합니다")
+            
             return jsonify({
-                "message": "No valid slides to process",
+                "message": "No valid slides to process, summary generated for existing data",
                 "processed_slides": [],
                 "result": result_data
             }), 200

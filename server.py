@@ -312,11 +312,6 @@ if __name__ == '__main__':
     print("🎓 Smart Lecture Note API 서버")
     print("=" * 60)
     print(f"📡 서버 주소: http://{host}:{port}")
-    print("📋 사용 가능한 API:")
-    print("├── 📁 비실시간 처리: /api/process/")
-    print("├── 📚 히스토리 관리: /api/history/")
-    print("├── ⚡ 실시간 처리: /api/realtime/")
-    print("└── 🔐 인증: /api/auth/")
     print("=" * 60)
     
     app.run(debug=debug, host=host, port=port)

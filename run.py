@@ -43,13 +43,7 @@ def main():
         websocket_process = Process(target=run_websocket_process)
         websocket_process.start()
         
-        print("✅ 모든 서버가 시작되었습니다!")
-        print("\n사용 가능한 API:")
-        print("├── 📁 비실시간 처리: /api/process/")
-        print("├── 📚 히스토리 관리: /api/history/")
-        print("├── ⚡ 실시간 처리: /api/realtime/")
-        print("├── 🔐 인증: /api/auth/")
-        print("└── 🌊 실시간 스트리밍: ws://localhost:8001")
+        print("모든 서버가 시작되었습니다.")
         print("\n종료하려면 Ctrl+C를 누르세요...")
         
         # 프로세스 대기
@@ -57,7 +51,7 @@ def main():
         websocket_process.join()
         
     except KeyboardInterrupt:
-        print("\n🛑 서버 종료 중...")
+        print("\n 서버 종료 중...")
         
         # 프로세스 종료
         if 'flask_process' in locals():
@@ -68,10 +62,10 @@ def main():
             websocket_process.terminate()
             websocket_process.join()
         
-        print("✅ 모든 서버가 종료되었습니다.")
+        print("✅\ 모든 서버가 종료되었습니다.")
     
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
+        print(f" 오류 발생: {e}")
 
 if __name__ == "__main__":
     main()

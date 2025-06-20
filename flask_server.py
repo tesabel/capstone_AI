@@ -8,10 +8,7 @@ from src.image_captioning import image_captioning
 from src.realtime_convert_audio import transcribe_audio_with_timestamps
 import shutil
 
-class Config:
-    """설정 클래스"""
-    SKIP_IMAGE_CAPTIONING = False
-    DEFAULT_CAPTIONING_PATH = 'data/image_captioning/image_captioning.json'
+
 
 app = Flask(__name__)
 CORS(app)
@@ -48,32 +45,18 @@ def start_realtime():
         pdf_path = os.path.join(job_dir, filename)
         pdf_file.save(pdf_path)
         
-        if Config.SKIP_IMAGE_CAPTIONING:
-            # 기존 캡셔닝 결과 파일 복사
+        try:
+            captioning_results = image_captioning(pdf_path)
             result_path = os.path.join(job_dir, "captioning_results.json")
-            shutil.copy2(Config.DEFAULT_CAPTIONING_PATH, result_path)
-            
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(captioning_results, f, ensure_ascii=False, indent=2)
             return jsonify({
                 "jobId": job_id,
-                "message": "PDF processing completed and default captioning results copied"
+                "message": "PDF processing and image captioning completed successfully"
             }), 200
-        else:
-            # 이미지 캡셔닝 수행
-            try:
-                captioning_results = image_captioning(pdf_path)
-                
-                # 결과를 JSON 파일로 저장
-                result_path = os.path.join(job_dir, "captioning_results.json")
-                with open(result_path, 'w', encoding='utf-8') as f:
-                    json.dump(captioning_results, f, ensure_ascii=False, indent=2)
-                    
-                return jsonify({
-                    "jobId": job_id,
-                    "message": "PDF processing and image captioning completed successfully"
-                }), 200
-                
-            except Exception as e:
-                return jsonify({"error": f"Image captioning failed: {str(e)}"}), 500
+            
+        except Exception as e:
+            return jsonify({"error": f"Image captioning failed: {str(e)}"}), 500
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

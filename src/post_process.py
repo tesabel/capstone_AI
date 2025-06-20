@@ -105,6 +105,7 @@ Respond with the JSON array ONLY, e.g.:
             "content": (
             "You map Korean lecture speech segments to the most relevant English slide. "
             "Prioritize title_keywords, use secondary_keywords as support. Return ONLY the JSON mapping array."
+            "Every segment must be mapped to exactly one slide. No segment should be missing, and a single segment must not be mapped to multiple slides."
         ),
         },
         {"role": "user", "content": user_content},
